@@ -32,7 +32,7 @@
     <p class="stat">No ATRs in your scope for this cycle yet.</p>
   {% else %}
   <table>
-    <tr><th>Dept</th><th>Course</th><th>Faculty</th><th>State</th><th>Owner</th><th></th></tr>
+    <tr><th>Programme code</th><th>Course</th><th>Faculty</th><th>State</th><th>Owner</th><th></th></tr>
     {% for r in rows %}
       <tr>
         <td>{{ r.offering.dept_code }}</td>
@@ -62,7 +62,7 @@
     courses are not part of the HOD endorsement flow. They are shown here for the
     Vice Dean's awareness. (No ATR email is sent when there is no email on record.)</p>
     <table>
-      <tr><th>Dept</th><th>Course</th><th>Faculty</th><th>Band</th><th>Overall</th><th>Responses</th></tr>
+      <tr><th>Programme code</th><th>Course</th><th>Faculty</th><th>Band</th><th>Overall</th><th>Responses</th></tr>
       {% for r in external_rows %}
         <tr>
           <td>{{ r.dept_code }}</td>
@@ -82,7 +82,7 @@
     owns their courses. Assign each of them a home department on
     <b>Admin → Manage Faculty</b> so their ATRs route correctly.</p>
     <table>
-      <tr><th>Course dept</th><th>Course</th><th>Faculty</th><th>Emp No</th><th>Band</th><th>Overall</th></tr>
+      <tr><th>Programme code</th><th>Course</th><th>Faculty</th><th>Emp No</th><th>Band</th><th>Overall</th></tr>
       {% for r in unassigned_rows %}
         <tr>
           <td>{{ r.dept_code }}</td>

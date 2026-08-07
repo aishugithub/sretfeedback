@@ -60,6 +60,31 @@ def smtp_settings():
 
 
 # ----------------------------------------------------------------------------
+# active_mode() — the SINGLE source of truth for "what will happen if I send now",
+# honouring the real precedence gmail-api > smtp > dev-outbox. Every pre-send
+# banner (Tokens, Participation, Results) MUST use this instead of only checking
+# SMTP — otherwise it wrongly reports "DEV mode" while Gmail-API sending is in
+# fact live (the exact bug this fixes). Returns a small dict the templates read:
+#   mode     : 'gmail-api' | 'smtp' | 'dev-outbox'
+#   live     : True when real mail leaves the server (gmail-api OR smtp)
+#   from_addr: the address mail is sent AS
+#   host     : a human label of the transport (for the reassurance line)
+# ----------------------------------------------------------------------------
+def active_mode():
+    from gmail_api import gmail_settings   # imported here to avoid an import cycle
+    g = gmail_settings()
+    s = smtp_settings()
+    if g["enabled"]:
+        return {"mode": "gmail-api", "live": True,
+                "from_addr": g["from_addr"], "host": "Gmail API"}
+    if s["enabled"]:
+        return {"mode": "smtp", "live": True,
+                "from_addr": s["from_addr"], "host": s["host"]}
+    return {"mode": "dev-outbox", "live": False,
+            "from_addr": s["from_addr"], "host": s["host"]}
+
+
+# ----------------------------------------------------------------------------
 # render_body(template_text, student_name, cycle_name, link)
 # ----------------------------------------------------------------------------
 # Fill the three supported placeholders. We use str.replace (not str.format) on

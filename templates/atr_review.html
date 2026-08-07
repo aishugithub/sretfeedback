@@ -20,7 +20,7 @@
     <h2 style="margin-top:0">{{ offering.course_code }} — {{ offering.course_name }}</h2>
     <table style="margin-bottom:14px">
       <tr><th>Faculty</th><td>{{ offering.faculty or offering.faculty_email }}</td></tr>
-      <tr><th>Department</th><td>{{ offering.dept_code }}</td></tr>
+      <tr><th>Programme code</th><td>{{ offering.dept_code }}</td></tr>
       <tr><th>Cycle</th><td>{{ cycle.label }}</td></tr>
       <tr><th>State</th><td><span class="pill warn">{{ atr.state }}</span></td></tr>
     </table>

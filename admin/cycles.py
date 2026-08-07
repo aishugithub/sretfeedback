@@ -209,15 +209,16 @@ def tokens_page(cycle_id):
     #      message to Config.TEST_REDIRECT_EMAIL, so students are never contacted.
     # The dangerous combination — real students actually get email — is ONLY
     # mail_live AND not is_test; the template highlights precisely that case.
-    smtp = emailer.smtp_settings()
+    m = emailer.active_mode()                    # gmail-api > smtp > dev-outbox
     mail = {
-        "live": smtp["enabled"],                 # True = real SMTP, False = dev/outbox
-        "host": smtp["host"],                    # shown when live, for reassurance
-        "from_addr": smtp["from_addr"],
+        "live": m["live"],                       # True = real mail (gmail-api OR smtp)
+        "mode": m["mode"],
+        "host": m["host"],                       # shown when live, for reassurance
+        "from_addr": m["from_addr"],
         "is_test": bool(c["is_test"]),           # test cycle -> recipients redirected
         "test_redirect": Config.TEST_REDIRECT_EMAIL,
         # The one true "real students will be emailed" flag the banner keys on.
-        "reaches_students": smtp["enabled"] and not bool(c["is_test"]),
+        "reaches_students": m["live"] and not bool(c["is_test"]),
     }
     return render_template("tokens_page.html", cycle=c, programmes=programmes,
                            depts=depts, ay=ay, dept_names=Config.DEPT_CODES,
@@ -412,14 +413,14 @@ def participation(cycle_id):
 
     # Same live-mail status the Tokens page shows, so the "Send reminder" button
     # carries an identical pre-send warning (see tokens_page for the full rationale).
-    smtp = emailer.smtp_settings()
+    m = emailer.active_mode()                    # gmail-api > smtp > dev-outbox
     mail = {
-        "live": smtp["enabled"],
-        "host": smtp["host"],
-        "from_addr": smtp["from_addr"],
+        "live": m["live"],
+        "host": m["host"],
+        "from_addr": m["from_addr"],
         "is_test": bool(c["is_test"]),
         "test_redirect": Config.TEST_REDIRECT_EMAIL,
-        "reaches_students": smtp["enabled"] and not bool(c["is_test"]),
+        "reaches_students": m["live"] and not bool(c["is_test"]),
     }
     return render_template("participation.html", cycle=c,
                            per_student=per_student, offering_rows=offering_rows,
@@ -508,12 +509,12 @@ def distribute_page(cycle_id):
 
     # Same live-mail status banner the Tokens/Participation pages show, so the
     # professor knows whether a send goes to real inboxes or the dev outbox.
-    smtp = emailer.smtp_settings()
+    m = emailer.active_mode()                    # gmail-api > smtp > dev-outbox
     mail = {
-        "live": smtp["enabled"],
-        "from_addr": smtp["from_addr"],
+        "live": m["live"],
+        "from_addr": m["from_addr"],
         "is_test": bool(c["is_test"]),
-        "reaches_faculty": smtp["enabled"] and not bool(c["is_test"]),
+        "reaches_faculty": m["live"] and not bool(c["is_test"]),
         "test_redirect": Config.TEST_REDIRECT_EMAIL,   # the default test address
     }
     conn.close()

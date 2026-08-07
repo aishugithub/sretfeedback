@@ -1,0 +1,38 @@
+# ============================================================================
+# app/.gitignore  —  keep secrets and real data OUT of the code repository
+# ============================================================================
+# The git repository is rooted at this `app/` folder, so these paths are
+# relative to app/. The golden rule: the repo holds CODE only. Every file that
+# contains a credential or a real person's details (students, faculty) stays on
+# your machine / the server, never on GitHub.
+
+# --- Secrets (Gmail refresh token, client secret, session key) --------------
+.env
+*.env
+
+# --- Python bytecode / caches -----------------------------------------------
+__pycache__/
+*.pyc
+
+# --- Live data: databases, archives, generated mail, temp uploads -----------
+# These hold real student responses and faculty/student identities. The data/
+# folder is recreated automatically at runtime (db.py), so nothing is lost by
+# ignoring it.
+data/
+archive/
+outbox/
+uploads_tmp/
+
+# --- Any stray data files / personal-data exports ---------------------------
+*.db
+*.db-wal
+*.db-shm
+*.tsv
+*.xlsx
+*.xls
+*.csv
+
+# --- OS / editor cruft ------------------------------------------------------
+.DS_Store
+Thumbs.db
+~$*
