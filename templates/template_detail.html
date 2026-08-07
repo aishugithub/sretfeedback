@@ -1,0 +1,78 @@
+{# ==========================================================================
+   template_detail.html  —  Edit a template's questions (spec 6.3)
+   Add / edit / delete / reorder questions. When LOCKED, editing is disabled and
+   the only action is "Create editable copy" (a new version).
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}{{ tpl.name }} · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <h2 style="margin-top:0">{{ tpl.name }}
+    <span class="muted">· {{ tpl.category_name }} · version {{ version.version_no if version else '—' }}</span></h2>
+
+  {% if locked %}
+    <div class="flash error">
+      This form is <strong>LOCKED</strong> — responses have started arriving, so questions are frozen to protect live data.
+      <form class="inline" method="post" action="{{ url_for('admin.template_new_version', template_id=tpl.id) }}">
+        <button class="btn small" type="submit">Create editable copy (new version)</button>
+      </form>
+    </div>
+  {% endif %}
+
+  <table>
+    <thead><tr><th>#</th><th>Section</th><th>Question (verbatim)</th><th>Scale</th><th>Options</th>{% if not locked %}<th>Actions</th>{% endif %}</tr></thead>
+    <tbody>
+      {% for q in questions %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          {% if locked %}
+            <td>{{ q.section }}</td>
+            <td>{{ q.text }}</td>
+            <td>{{ q.scale_code }}</td>
+            <td class="muted">{% for o in q.options %}{{ o.label }}{% if not loop.last %} · {% endif %}{% endfor %}{% if q.is_free_text %}<em>free text</em>{% endif %}</td>
+          {% else %}
+            {# Inline edit form per question. #}
+            <td colspan="4">
+              <form method="post" action="{{ url_for('admin.question_edit', template_id=tpl.id, qid=q.id) }}"
+                    style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
+                <input name="section" value="{{ q.section if q.section else '' }}" placeholder="section" style="width:130px">
+                <input name="text" value="{{ q.text }}" style="flex:1; min-width:260px">
+                <select name="scale_id" style="width:150px">
+                  {% for s in scales %}
+                    <option value="{{ s.id }}" {{ 'selected' if s.code==q.scale_code }}>{{ s.code }}</option>
+                  {% endfor %}
+                </select>
+                <button class="btn small" type="submit">Save</button>
+              </form>
+              <span class="muted">Options: {% for o in q.options %}{{ o.label }}{% if o.weight is not none %} ({{ o.weight }}){% elif o.fraction is not none %} ({{ o.fraction }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}{% if q.is_free_text %}<em>free text</em>{% endif %}</span>
+            </td>
+            <td style="white-space:nowrap">
+              <form class="inline" method="post" action="{{ url_for('admin.question_move', template_id=tpl.id, qid=q.id) }}"><input type="hidden" name="dir" value="up"><button class="btn small grey" type="submit">↑</button></form>
+              <form class="inline" method="post" action="{{ url_for('admin.question_move', template_id=tpl.id, qid=q.id) }}"><input type="hidden" name="dir" value="down"><button class="btn small grey" type="submit">↓</button></form>
+              <form class="inline" method="post" action="{{ url_for('admin.question_delete', template_id=tpl.id, qid=q.id) }}"><button class="btn small danger" type="submit" onclick="return confirm('Delete this question?')">✕</button></form>
+            </td>
+          {% endif %}
+        </tr>
+      {% else %}
+        <tr><td colspan="6">No questions yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if not locked %}
+    <div class="card" style="margin-top:16px">
+      <h3 style="margin-top:0">Add a question</h3>
+      <form method="post" action="{{ url_for('admin.question_add', template_id=tpl.id) }}"
+            style="display:flex; gap:8px; flex-wrap:wrap; align-items:end">
+        <div class="field" style="margin:0"><label>Section</label><input name="section" style="width:150px"></div>
+        <div class="field" style="margin:0; flex:1"><label>Question text (verbatim)</label><input name="text" style="width:100%; min-width:280px"></div>
+        <div class="field" style="margin:0"><label>Scale</label>
+          <select name="scale_id" style="width:160px">{% for s in scales %}<option value="{{ s.id }}">{{ s.code }}{% if s.is_free_text %} (free text){% endif %}</option>{% endfor %}</select></div>
+        <button class="btn" type="submit">Add</button>
+      </form>
+    </div>
+  {% endif %}
+
+  <p style="margin-top:14px"><a class="btn grey" href="{{ url_for('admin.templates_list') }}">Back to templates</a></p>
+
+{% endblock %}

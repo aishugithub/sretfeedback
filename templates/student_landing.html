@@ -1,0 +1,52 @@
+{# ==========================================================================
+   student_landing.html  —  The student's private course list (spec 8.1–8.2)
+   Greets the student by first name (only on their own page), lists all their
+   courses with done ticks (pause/resume). Overrides the admin nav (students
+   never see admin controls).
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block subtitle %}Course Feedback{% endblock %}
+{% block nav %}{% endblock %}   {# no admin nav on the student side #}
+{% block title %}Your Feedback · SRET{% endblock %}
+{% block content %}
+
+  {# v3: student names are optional (§7.1); greet by first name if present, else
+     by register number, so a nameless roster still renders cleanly. #}
+  <h2 style="margin-top:0">Hello {{ (student.name.split(' ')[0]) if student.name else student.reg_no }} 👋</h2>
+  <p>You have <strong>{{ n_total }}</strong> course{{ 's' if n_total != 1 else '' }} to give feedback on for
+     <strong>{{ cycle.label }}</strong>. You've completed <strong>{{ n_done }}</strong>.
+     You can stop anytime and come back to this same link to finish.</p>
+
+  {% if not cycle_open %}
+    <div class="flash" style="background:#fbf1d6; color:#7a5a00">This feedback window is currently closed. Please check back later.</div>
+  {% endif %}
+
+  <div class="bar" style="max-width:100%; margin:10px 0 20px">
+    <span style="width:{{ (100 * n_done / n_total)|round(0,'floor') if n_total else 0 }}%"></span></div>
+
+  {% for i in items %}
+    <div class="card" style="max-width:100%; display:flex; justify-content:space-between; align-items:center; gap:12px">
+      <div>
+        <div style="font-weight:600">{{ i.offering.course_code }} — {{ i.offering.course_name if i.offering.course_name else 'Course' }}</div>
+        <div class="muted">{{ i.offering.faculty if i.offering.faculty else 'Faculty' }}
+          · {{ i.offering.category_name if i.offering.category_name else 'No category' }}</div>
+      </div>
+      <div>
+        {% if i.done %}
+          <span class="pill ok">✓ submitted</span>
+        {% elif not i.has_category %}
+          <span class="pill warn">form not ready</span>
+        {% elif cycle_open %}
+          <a class="btn" href="{{ url_for('student.course_form', token=token, offering_id=i.offering.id) }}">Give feedback</a>
+        {% else %}
+          <span class="muted">closed</span>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+
+  {% if n_done == n_total and n_total > 0 %}
+    <div class="flash success">All done — thank you! Your feedback has been recorded anonymously.</div>
+  {% endif %}
+
+{% endblock %}

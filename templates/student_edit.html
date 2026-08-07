@@ -1,0 +1,60 @@
+{# ==========================================================================
+   student_edit.html  —  Add / edit one student (spec 4.2 individual exceptions)
+   Reused for both "new" (student is None) and "edit". reg_no is the immutable
+   PK: editable only when adding. batch_offset encodes lateral(-1)/detained(+1).
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if student else 'Add' }} Student · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <div class="card">
+    <h3 style="margin-top:0">{{ 'Edit student ' + student.reg_no if student else 'Add a student' }}</h3>
+    <form method="post" action="{{ url_for('admin.students_edit', reg_no=student.reg_no) if student else url_for('admin.students_new') }}">
+
+      <div class="field"><label>Reg No {% if not student %}(immutable){% endif %}</label>
+        {% if student %}<input value="{{ student.reg_no }}" disabled>
+        {% else %}<input name="reg_no" required>{% endif %}</div>
+
+      <div class="field"><label>Name</label>
+        <input name="name" value="{{ student.name if student else '' }}" required></div>
+
+      <div class="field"><label>Email</label>
+        <input name="email" value="{{ student.email if student and student.email else '' }}"></div>
+
+      <div class="field"><label>Dept Code</label>
+        <select name="dept_code">
+          {% for code, name in dept_names.items() %}
+            <option value="{{ code }}" {{ 'selected' if student and student.dept_code==code }}>{{ code }} — {{ name }}</option>
+          {% endfor %}
+        </select></div>
+
+      <div class="field"><label>Programme</label>
+        <select name="programme">
+          {% for p in ['B.Tech','B.Sc','M.Sc'] %}
+            <option value="{{ p }}" {{ 'selected' if student and student.programme==p }}>{{ p }}</option>
+          {% endfor %}
+        </select></div>
+
+      <div class="field"><label>Batch Year (year of admission — never changes)</label>
+        <input name="batch_year" value="{{ student.batch_year if student else '' }}" required></div>
+
+      <div class="field"><label>Section (optional)</label>
+        <input name="section" value="{{ student.section if student and student.section else '' }}"></div>
+
+      {% if student %}
+        <div class="field"><label>Batch offset (−1 lateral entry · 0 normal · +1 detained/break)</label>
+          <input name="batch_offset" value="{{ student.batch_offset }}" style="width:90px"></div>
+        <div class="field"><label>Status</label>
+          <select name="status">
+            {% for s in ['active','graduated','left'] %}
+              <option value="{{ s }}" {{ 'selected' if student.status==s }}>{{ s }}</option>
+            {% endfor %}
+          </select></div>
+      {% endif %}
+
+      <button class="btn" type="submit">{{ 'Save changes' if student else 'Add student' }}</button>
+      <a class="btn grey" href="{{ url_for('admin.students_list') }}">Cancel</a>
+    </form>
+  </div>
+
+{% endblock %}

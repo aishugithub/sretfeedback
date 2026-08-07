@@ -1,0 +1,33 @@
+# ============================================================================
+# requirements.txt  —  Python package dependencies for the Feedback System
+# ============================================================================
+# Install everything with:   pip install -r requirements.txt
+#
+# We keep the dependency list DELIBERATELY SMALL so the whole system runs
+# comfortably on a single laptop on the college LAN (see spec Section 8/13).
+# ----------------------------------------------------------------------------
+
+Flask==3.0.3          # The web framework. Serves both the admin pages and (later)
+                      # the student feedback form. Chosen for its tiny footprint
+                      # and server-rendered HTML — no heavy front-end build step.
+
+openpyxl==3.1.5       # Reads/writes .xlsx files. Used by the allocation
+                      # auto-converter (Night 1) to parse the messy course-
+                      # allocation matrix, and later by the report engine
+                      # (Night 3) to reproduce the "Feedback Report V2.0" layout.
+
+reportlab==4.5.1      # Pure-Python PDF generation (no system libraries needed,
+                      # so it installs + runs on the laptop with just pip). Used
+                      # by report_export.py (Night 3) to produce the print-ready
+                      # PDF version of each "Feedback Report V2.0", including the
+                      # per-section bar charts drawn with reportlab.graphics.
+
+# NOTE: SQLite needs NO package — Python ships with the built-in `sqlite3`
+# module. That is the entire database layer (spec Section 5), run in WAL mode.
+#
+# NOTE (v1.5 — Gmail API email transport): the Gmail sending path in
+# app/gmail_api.py deliberately adds NO new dependency. It talks to Google's
+# OAuth2 + Gmail REST endpoints using only the standard library (urllib, json,
+# base64), so nothing extra needs pip-installing on the PythonAnywhere free tier
+# (raw third-party email APIs are not on that tier's network allow-list; Google
+# API domains are). See EMAIL-GMAIL-API-SETUP.md for the one-time setup.

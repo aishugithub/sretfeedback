@@ -1,0 +1,106 @@
+{# ==========================================================================
+   participation.html  —  Live "submitted vs pending" board (spec 6.7)
+   Computed only from identity-side data (never the answers). Two views:
+   per-student (drives reminders) and per-offering (expected/submitted/pending).
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Participation · {{ cycle.label }}{% endblock %}
+{% block content %}
+
+  <h2 style="margin-top:0">Participation — {{ cycle.label }}</h2>
+  <div class="cards">
+    <div class="metric"><div class="n">{{ n_tokens }}</div><div class="l">Students with a link</div></div>
+    <div class="metric"><div class="n">{{ n_completed_all }}</div><div class="l">Completed ALL courses</div></div>
+    <div class="metric"><div class="n">{{ n_tokens - n_completed_all }}</div><div class="l">Still pending</div></div>
+  </div>
+
+  {# Same pre-send mail status banner as the Tokens page: reminders go out the
+     same mailer, so the admin sees exactly what "Send reminder" will do. #}
+  {% if not mail.live %}
+    <div class="flash" style="background:#e6f4ea; color:#1e4620; border:1px solid #b7dfc2">
+      <strong>✓ Mail: DEV mode (outbox) — no real email will be sent.</strong>
+      Reminders are written as <code>.eml</code> files into <code>app/outbox/</code>.
+    </div>
+  {% elif mail.is_test %}
+    <div class="flash" style="background:#fbf1d6; color:#7a5a00; border:1px solid #e6cf8a">
+      <strong>⚠ Mail: SMTP LIVE, but this is a TEST cycle.</strong>
+      Reminders send via <code>{{ mail.host }}</code> but are all redirected to
+      <strong>{{ mail.test_redirect }}</strong> (<code>[TEST]</code> tagged). Students are not contacted.
+    </div>
+  {% else %}
+    <div class="flash" style="background:#fdecea; color:#7a1c15; border:1px solid #f0b3ac">
+      <strong>🔴 Mail: SMTP LIVE — reminders will go to REAL students.</strong>
+      Sending via <code>{{ mail.host }}</code> from <code>{{ mail.from_addr }}</code>, no test redirect.
+      Once sent it cannot be recalled.
+    </div>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('admin.participation_remind', cycle_id=cycle.id) }}"
+        onsubmit="return confirmRemind()" style="margin-bottom:16px">
+    <button class="btn" type="submit">Send reminder to everyone still pending</button>
+    <span class="muted">Uses each student's own resume link.</span>
+  </form>
+
+  <script>
+    // Last-chance confirm, wording baked in from the server-side mail state.
+    function confirmRemind() {
+      {% if mail.reaches_students %}
+      return confirm(
+        "⚠ REAL REMINDER EMAIL TO REAL STUDENTS\n\n" +
+        "SMTP is live ({{ mail.host }}) and this is NOT a test cycle, so every " +
+        "pending student gets a real reminder. This cannot be undone.\n\nSend for real?");
+      {% elif mail.is_test %}
+      return confirm(
+        "Reminders will send, but this is a TEST cycle so they all go to " +
+        "{{ mail.test_redirect }} (students are NOT contacted).\n\nContinue?");
+      {% else %}
+      return confirm(
+        "DEV mode: reminders will be written to app/outbox/ as .eml files. " +
+        "No real email will be sent.\n\nContinue?");
+      {% endif %}
+    }
+  </script>
+
+  <div class="card">
+    <h3 style="margin-top:0">Per course (offering)</h3>
+    <table>
+      <thead><tr><th>Dept</th><th>Yr</th><th>Sec</th><th>Course</th><th>Faculty</th><th>Expected</th><th>Submitted</th><th>Pending</th><th>Progress</th></tr></thead>
+      <tbody>
+        {% for a in offering_rows %}
+          <tr>
+            <td>{{ a.offering.dept_code }}</td>
+            <td>{{ a.offering.year_of_study }}</td>
+            <td>{{ a.offering.section if a.offering.section else '' }}</td>
+            <td>{{ a.offering.course_code }}<br><span class="muted">{{ a.offering.course_name if a.offering.course_name else '' }}</span></td>
+            <td>{{ a.offering.faculty if a.offering.faculty else '' }}</td>
+            <td>{{ a.expected }}</td>
+            <td>{{ a.submitted }}</td>
+            <td>{{ a.pending }}</td>
+            <td><div class="bar"><span style="width:{{ (100 * a.submitted / a.expected)|round(0,'floor') if a.expected else 0 }}%"></span></div></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="9">No participation data yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Per student</h3>
+    <table>
+      <thead><tr><th>Reg No</th><th>Name</th><th>Dept</th><th>Done / Total</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for s in per_student %}
+          <tr>
+            <td>{{ s.reg_no }}</td>
+            <td>{{ s.name }}</td>
+            <td>{{ s.dept_code }}</td>
+            <td>{{ s.done }} / {{ s.total }}</td>
+            <td>{% if s.completed_all %}<span class="pill ok">done</span>{% else %}<span class="pill warn">pending</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+{% endblock %}

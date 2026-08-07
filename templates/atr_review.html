@@ -1,0 +1,70 @@
+{# ==========================================================================
+   atr_review.html  —  One ATR: body, audit trail, and endorse/return controls
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: served by atr.atr_review. `actions` is atr_workflow
+   .legal_actions(state, role), so the ENDORSE/RETURN buttons appear ONLY when
+   this leader may act on this state right now (spec §8). Posting a button hits
+   atr.atr_act, which re-checks legality in the pure state machine — the UI is a
+   convenience, not the guard. Shows aggregate context only (spec §3.2).
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block subtitle %}ATR review — {{ leader.role }}{% endblock %}
+{% block nav %}
+  <nav class="admin">
+    <a href="{{ url_for('atr.atr_dashboard') }}">My ATRs</a>
+    <a href="{{ url_for('atr.leader_logout') }}">Log out</a>
+  </nav>
+{% endblock %}
+{% block content %}
+  <div class="card">
+    <h2 style="margin-top:0">{{ offering.course_code }} — {{ offering.course_name }}</h2>
+    <table style="margin-bottom:14px">
+      <tr><th>Faculty</th><td>{{ offering.faculty or offering.faculty_email }}</td></tr>
+      <tr><th>Department</th><td>{{ offering.dept_code }}</td></tr>
+      <tr><th>Cycle</th><td>{{ cycle.label }}</td></tr>
+      <tr><th>State</th><td><span class="pill warn">{{ atr.state }}</span></td></tr>
+    </table>
+
+    <h3>Faculty's action-taken narrative</h3>
+    <p style="white-space:pre-wrap">{{ atr.body or '(not yet filed)' }}</p>
+
+    {% if actions %}
+      <h3>Your decision</h3>
+      {% if 'ENDORSE' in actions %}
+        <form class="inline" method="post"
+              action="{{ url_for('atr.atr_act', cycle_code=cycle.code, atr_id=atr.id, action='endorse') }}">
+          <input type="hidden" name="comment" value="">
+          <button class="btn" type="submit">Endorse ▲</button>
+        </form>
+      {% endif %}
+      {% if 'RETURN' in actions %}
+        <form method="post" style="margin-top:12px"
+              action="{{ url_for('atr.atr_act', cycle_code=cycle.code, atr_id=atr.id, action='return') }}">
+          <div class="field">
+            <label for="comment">Reason for returning (required)</label>
+            <textarea id="comment" name="comment" rows="3" required></textarea>
+          </div>
+          <button class="btn danger" type="submit">Return one level down ▼</button>
+        </form>
+      {% endif %}
+    {% else %}
+      <p class="muted">No action is available to you on this ATR in its current state.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Audit trail</h3>
+    <table>
+      <tr><th>#</th><th>Action</th><th>Actor</th><th>Comment</th><th>At</th></tr>
+      {% for e in events %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ e.action }}</td>
+          <td>{{ e.actor_user_id or '—' }}</td>
+          <td>{{ e.comment or '' }}</td>
+          <td class="muted">{{ e.at }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  </div>
+{% endblock %}

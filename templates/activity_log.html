@@ -1,0 +1,146 @@
+{# ==========================================================================
+   activity_log.html  —  The ACTIVITY LOG viewer (Version 2.0 · Module 3)
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: the read-only window onto master.db.activity_log, reached from
+   the admin nav ("Activity"). It answers the professor's question at a glance —
+   WHO did WHAT, WHEN, and from WHERE — for every operational action on the system.
+   It only DISPLAYS rows fetched by admin.activity_log_view (which calls
+   activity_log.recent); it never writes anything itself.
+
+   The four filter controls (actor / action / cycle / day) submit back to this same
+   page as GET query args, so a filtered view is a shareable, bookmarkable URL.
+   Reminder (anonymity): student feedback submissions are deliberately NEVER in
+   this table, so nothing here can trace an answer to a student.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Activity · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <h2 style="margin-top:0">System activity log</h2>
+  <p class="stat">
+    Every state-changing action on the system — who did it, what, when, and from
+    which device. Newest first (latest 300). Student feedback submissions are
+    <strong>never</strong> recorded here, preserving anonymity.
+  </p>
+
+  {# ---- AT-A-GLANCE HEADER : the shape of activity without scrolling -------- #}
+  <div class="cards">
+    <div class="metric">
+      <div class="n">{{ summary.today }}</div>
+      <div class="l">actions today (UTC)</div>
+    </div>
+    <div class="metric">
+      <div class="n">{{ summary.total }}</div>
+      <div class="l">actions all-time</div>
+    </div>
+    <div class="metric">
+      <div class="n">{{ summary.by_type.get('ADMIN', 0) }}</div>
+      <div class="l">by admin console</div>
+    </div>
+    <div class="metric">
+      <div class="n">{{ summary.by_type.get('LEADER', 0) }}</div>
+      <div class="l">by leaders</div>
+    </div>
+    <div class="metric">
+      <div class="n">{{ summary.by_type.get('FACULTY', 0) }}</div>
+      <div class="l">by faculty (ATRs)</div>
+    </div>
+    <div class="metric">
+      <div class="n" style="font-size:15px">{{ summary.last_at or '—' }}</div>
+      <div class="l">most recent action</div>
+    </div>
+  </div>
+
+  {# ---- FILTER BAR : all optional, submitted as GET so the URL captures state --#}
+  <form method="get" class="filters">
+    <div>
+      <label for="actor">Who (actor)</label>
+      <select name="actor" id="actor">
+        <option value="">— anyone —</option>
+        {% for a in actors %}
+          <option value="{{ a }}" {% if a == f_actor %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="action">What (action)</label>
+      <select name="action" id="action">
+        <option value="">— any action —</option>
+        {% for a in actions %}
+          <option value="{{ a }}" {% if a == f_action %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="cycle">Cycle</label>
+      <select name="cycle" id="cycle">
+        <option value="">— any cycle —</option>
+        {% for c in cycles %}
+          <option value="{{ c.code }}" {% if c.code == f_cycle %}selected{% endif %}>{{ c.code }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="day">Day (UTC)</label>
+      {# type=date gives a native picker; value pre-fills the current filter. #}
+      <input type="date" name="day" id="day" value="{{ f_day or '' }}">
+    </div>
+    <div>
+      <button class="btn small" type="submit">Filter</button>
+      <a class="btn small grey" href="{{ url_for('admin.activity_log_view') }}">Clear</a>
+    </div>
+  </form>
+
+  {# ---- THE LOG TABLE ------------------------------------------------------- #}
+  <table>
+    <thead>
+      <tr>
+        <th>When (UTC)</th>
+        <th>Who</th>
+        <th>Action</th>
+        <th>Cycle</th>
+        <th>Detail</th>
+        <th>Status</th>
+        <th>From (IP)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          <td style="white-space:nowrap">{{ r.at }}</td>
+          <td>
+            {# A small coloured pill by actor type makes leaders vs the admin
+               console vs faculty scannable at a glance. #}
+            {% if r.actor_type == 'LEADER' %}
+              <span class="pill ok">LEADER</span>
+            {% elif r.actor_type == 'FACULTY' %}
+              <span class="pill warn">FACULTY</span>
+            {% elif r.actor_type == 'SYSTEM' %}
+              <span class="pill">SYSTEM</span>
+            {% else %}
+              <span class="pill">ADMIN</span>
+            {% endif %}
+            <div class="muted">{{ r.actor_label }}</div>
+          </td>
+          <td>{{ r.action }}
+            <div class="muted">{{ r.method }} {{ r.path }}</div>
+          </td>
+          <td>{{ r.cycle_code or '' }}</td>
+          <td>{{ r.detail or '' }}</td>
+          <td>
+            {# 2xx/3xx are normal; a 4xx/5xx is worth flagging in red. #}
+            {% if r.status and r.status >= 400 %}
+              <span class="pill" style="background:#fbe0e0;color:#a11">{{ r.status }}</span>
+            {% else %}
+              {{ r.status or '' }}
+            {% endif %}
+          </td>
+          <td class="muted">{{ r.ip or '' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="muted">No activity recorded yet for these filters.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+{% endblock %}

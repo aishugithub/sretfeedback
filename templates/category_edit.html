@@ -1,0 +1,25 @@
+{# ==========================================================================
+   category_edit.html  —  Add / edit a category (spec 6.2)
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if category else 'Add' }} Category · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <div class="card">
+    <h3 style="margin-top:0">{{ 'Edit category' if category else 'Add a category' }}</h3>
+    <form method="post" action="{{ url_for('admin.categories_edit', cat_id=category.id) if category else url_for('admin.categories_new') }}">
+      <div class="field"><label>Code {% if not category %}(e.g. INTERN){% endif %}</label>
+        {% if category %}<input value="{{ category.code }}" disabled>
+        {% else %}<input name="code" required>{% endif %}</div>
+      <div class="field"><label>Name</label>
+        <input name="name" value="{{ category.name if category else '' }}" required></div>
+      <div class="field"><label>Form title (optional)</label>
+        <input name="form_title" value="{{ category.form_title if category and category.form_title else '' }}"></div>
+      <div class="field"><label>Report key (optional, e.g. T / L / SL / AE)</label>
+        <input name="report_key" value="{{ category.report_key if category and category.report_key else '' }}"></div>
+      <button class="btn" type="submit">{{ 'Save' if category else 'Add' }}</button>
+      <a class="btn grey" href="{{ url_for('admin.categories_list') }}">Cancel</a>
+    </form>
+  </div>
+
+{% endblock %}

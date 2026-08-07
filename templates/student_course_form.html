@@ -1,0 +1,101 @@
+{# ==========================================================================
+   student_course_form.html  —  One course's feedback form (spec 8.3)
+   Renders the CORRECT category form: questions VERBATIM from the frozen version,
+   each with its exact option set. Radios for scaled questions, textarea for the
+   open comment. On submit, answers go anonymously to Group B.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block subtitle %}Course Feedback{% endblock %}
+{% block nav %}{% endblock %}
+{% block title %}{{ offering.course_code }} · Feedback{% endblock %}
+{% block content %}
+
+  <p><a href="{{ url_for('student.landing', token=token) }}">&larr; Back to my courses</a></p>
+  <h2 style="margin-top:0">{{ offering.course_code }} — {{ offering.course_name if offering.course_name else 'Course' }}</h2>
+  <p class="muted">{{ offering.faculty if offering.faculty else 'Faculty' }} · {{ offering.category_name }} · {{ cycle.label }}</p>
+
+  {% if already_done %}
+    <div class="flash success">You've already submitted feedback for this course.</div>
+    <a class="btn" href="{{ url_for('student.landing', token=token) }}">Back to my courses</a>
+  {% elif not cycle_open %}
+    <div class="flash error">This feedback window is closed.</div>
+  {% elif not questions %}
+    <div class="flash error">This course's form isn't configured yet. Please try later.</div>
+  {% else %}
+    {# Server-side validation (spec §11) may bounce back a list of unanswered
+       question ids and the values already chosen, so nothing is lost. #}
+    {% if errors %}
+      <div class="flash error">Please answer all rating questions ({{ errors|length }} left). The first is highlighted below.</div>
+    {% endif %}
+    <form method="post" id="fbform"
+          action="{{ url_for('student.course_submit', token=token, offering_id=offering.id) }}">
+      {# Records when the form was opened, so the server can flag suspiciously
+         fast, zero-variance "straight-lined" submissions (spec §11.1). #}
+      <input type="hidden" name="opened_at" id="opened_at" value="">
+      {% set ns = namespace(section='') %}
+      {% for q in questions %}
+        {% if q.section and q.section != ns.section %}
+          {% set ns.section = q.section %}
+          <div class="qsection">{{ q.section }}</div>
+        {% endif %}
+        <div class="qtext" id="qwrap{{ q.id }}"
+             style="{{ 'background:#fff4f4;border-left:3px solid #b23;padding-left:8px' if errors and q.id in errors else '' }}">
+          {{ loop.index }}. {{ q.text }}{% if not q.is_free_text %} <span style="color:#b23">*</span>{% endif %}
+        </div>
+        {% if q.is_free_text %}
+          <textarea name="q{{ q.id }}" rows="3" placeholder="Your comments (optional)">{{ (prior[q.id|string] if prior and (q.id|string) in prior else '') }}</textarea>
+        {% else %}
+          <div class="opts">
+            {% for o in q.options %}
+              <label><input type="radio" name="q{{ q.id }}" value="{{ o.label }}"
+                {{ 'checked' if prior and prior.get(q.id|string)==o.label }}
+                data-q="{{ q.id }}" class="rateq"> {{ o.label }}</label>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endfor %}
+      <div style="margin-top:20px; position:sticky; bottom:0; background:#f5f6f8; padding:10px 0">
+        <span id="counter" class="pill ok" style="margin-right:10px"></span>
+        <button class="btn" type="submit">Submit this course's feedback</button>
+        <a class="btn grey" href="{{ url_for('student.landing', token=token) }}">Save &amp; do later</a>
+      </div>
+      <p class="muted" style="margin-top:10px">All rating questions (*) are required. The comment is optional. Your answers are stored anonymously — they can't be traced back to you.</p>
+    </form>
+
+    {# Client-side: a live "answered X / Y" counter, and on submit, block + scroll
+       to the first unanswered rating question. The server re-checks regardless. #}
+    <script>
+      (function () {
+        document.getElementById('opened_at').value = Date.now();
+        var required = {}; // question id -> answered?
+        document.querySelectorAll('.rateq').forEach(function (el) { required[el.dataset.q] = false; });
+        var total = Object.keys(required).length;
+        var counter = document.getElementById('counter');
+        function refresh() {
+          document.querySelectorAll('.rateq:checked').forEach(function (el) { required[el.dataset.q] = true; });
+          var done = Object.values(required).filter(Boolean).length;
+          counter.textContent = done + ' / ' + total + ' answered';
+          counter.className = 'pill ' + (done === total ? 'ok' : 'warn');
+        }
+        document.querySelectorAll('.rateq').forEach(function (el) {
+          el.addEventListener('change', function () { required[el.dataset.q] = true; refresh(); });
+        });
+        refresh();
+        document.getElementById('fbform').addEventListener('submit', function (e) {
+          var firstMissing = null;
+          Object.keys(required).forEach(function (qid) {
+            var answered = document.querySelector('.rateq[data-q="' + qid + '"]:checked');
+            if (!answered && !firstMissing) firstMissing = qid;
+          });
+          if (firstMissing) {
+            e.preventDefault();
+            var wrap = document.getElementById('qwrap' + firstMissing);
+            if (wrap) { wrap.scrollIntoView({behavior:'smooth', block:'center'});
+                        wrap.style.background = '#fff4f4'; wrap.style.borderLeft = '3px solid #b23'; wrap.style.paddingLeft='8px'; }
+          }
+        });
+      })();
+    </script>
+  {% endif %}
+
+{% endblock %}

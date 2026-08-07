@@ -1,0 +1,58 @@
+{# allocation_upload.html — rigid course-allocation upload (spec v3 §7.2) #}
+{% extends "base.html" %}
+{% block title %}Allocation · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <div class="card">
+    <h3 style="margin-top:0">Course allocation — cycle {{ cycle_code }}</h3>
+    <p class="muted">One row per teaching assignment (faculty + course + section). Flat, no merged cells. A course taught by 3 faculty = 3 rows; an elective basket = one row per option/faculty.</p>
+    {% if n_offerings is defined %}<p class="stat">{{ n_offerings }} assignment(s) currently committed for {{ cycle_code }}.</p>{% endif %}
+    {% if cycles %}
+      <form class="inline" method="get" action="{{ url_for('admin.allocation_upload') }}">
+        <label class="muted">Cycle
+          <select name="cycle" onchange="this.form.submit()">
+            {% for c in cycles %}<option value="{{ c.code }}" {{ 'selected' if c.code==cycle_code }}>{{ c.code }}</option>{% endfor %}
+          </select></label>
+      </form>
+    {% endif %}
+    <div style="margin:10px 0"><a class="btn small" href="{{ url_for('admin.allocation_template', cycle=cycle_code) }}">⬇ Download template</a></div>
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('admin.allocation_upload', cycle=cycle_code) }}">
+      <div class="field"><input type="file" name="file" accept=".xlsx" required></div>
+      <button class="btn" type="submit">Validate (dry run)</button>
+    </form>
+    <p class="muted">Every (programme, year, section) on a CORE/LAB/PROJECT row must exist in the uploaded roster — otherwise the row is rejected.</p>
+  </div>
+
+  {% if summary %}
+    <div class="card">
+      <h3 style="margin-top:0">Reconciliation</h3>
+      {% set r = summary.reconciliation %}
+      <p><strong>{{ summary.rows }}</strong> rows ·
+         <strong>{{ summary.assignments }}</strong> assignments ·
+         {{ r.distinct_courses }} courses · {{ r.distinct_faculty }} faculty ·
+         {{ r.elective_assignments }} elective assignment(s).</p>
+
+      {% if summary.errors %}
+        <div class="flash error">
+          <strong>{{ summary.errors|length }} blocking error(s) — nothing committed:</strong>
+          <ul>{% for e in summary.errors %}<li>{{ e }}</li>{% endfor %}</ul>
+        </div>
+      {% else %}
+        <div class="flash success">All checks passed. Confirm to write {{ summary.assignments }} assignments (replaces existing allocation for {{ cycle_code }}).</div>
+        <form method="post" action="{{ url_for('admin.allocation_upload', cycle=cycle_code) }}">
+          <input type="hidden" name="confirm" value="yes">
+          <input type="hidden" name="staged" value="{{ staged }}">
+          <button class="btn" type="submit">Confirm &amp; commit allocation</button>
+        </form>
+      {% endif %}
+
+      {% if summary.warnings %}
+        <div class="flash" style="background:#fbf1d6; color:#7a5a00">
+          <strong>{{ summary.warnings|length }} warning(s):</strong>
+          <ul>{% for w in summary.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+{% endblock %}

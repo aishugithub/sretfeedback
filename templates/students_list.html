@@ -1,0 +1,110 @@
+{# ==========================================================================
+   students_list.html  —  Per-cycle roster + exclusions (spec v3 §7.1, §7.7)
+   Lists the roster for one cycle, with the STORED year of study (never derived),
+   an exclusion panel (TC/withdrawal), and roster upload / template / demo tools.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Roster · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <div class="card">
+    <h3 style="margin-top:0">Student roster — cycle
+      <form class="inline" method="get" action="{{ url_for('admin.students_list') }}">
+        <select name="cycle" onchange="this.form.submit()">
+          {% for c in cycles %}
+            <option value="{{ c.code }}" {{ 'selected' if c.code==cycle_code }}>{{ c.code }} — {{ c.label }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    </h3>
+    <p class="stat" style="margin:6px 0">
+      <strong>{{ total }}</strong> active
+      {% if excluded %}· <strong>{{ excluded }}</strong> excluded{% endif %}
+      (shown as “active (excluded)” so a reduced audience is never a silent change).
+    </p>
+    <div style="display:flex; gap:8px; flex-wrap:wrap">
+      <a class="btn small" href="{{ url_for('admin.students_template', cycle=cycle_code) }}">⬇ Download template</a>
+      <a class="btn small" href="{{ url_for('admin.students_upload', cycle=cycle_code) }}">Upload roster</a>
+      <form class="inline" method="post" action="{{ url_for('admin.students_seed_demo') }}">
+        <input type="hidden" name="cycle" value="{{ cycle_code }}">
+        <button class="btn small grey" type="submit"
+          onclick="return confirm('Seed demo test students for every cohort in this cycle allocation?')">Seed demo data</button></form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Exclude students (TC / withdrawal) — §7.7</h3>
+    <form method="post" action="{{ url_for('admin.students_exclude') }}"
+          style="display:flex; gap:10px; flex-wrap:wrap; align-items:end">
+      <input type="hidden" name="cycle" value="{{ cycle_code }}">
+      <div class="field" style="margin:0"><label>Reg no(s) — paste many, space/comma separated</label>
+        <textarea name="bulk" rows="2" style="min-width:320px" placeholder="E0225009 E0225042"></textarea></div>
+      <div class="field" style="margin:0"><label>Reason</label>
+        <select name="reason">
+          {% for r in ['TC','withdrawn','long absence','data error'] %}<option>{{ r }}</option>{% endfor %}
+        </select></div>
+      <div class="field" style="margin:0"><label>Effective date</label>
+        <input name="effective" type="date"></div>
+      <button class="btn danger" type="submit">Exclude</button>
+    </form>
+    <p class="muted" style="margin-bottom:0">Excluding cancels their email, kills their outstanding link and removes them from expected counts. Any feedback they already gave is kept (anonymous). Reversible.</p>
+  </div>
+
+  <form class="filters" method="get" action="{{ url_for('admin.students_list') }}">
+    <input type="hidden" name="cycle" value="{{ cycle_code }}">
+    <div><label>Search (reg no)</label><input name="q" value="{{ f_q }}"></div>
+    <div><label>Programme</label>
+      <select name="dept"><option value="">All</option>
+        {% for d in depts %}<option value="{{ d.dept_code }}" {{ 'selected' if d.dept_code==f_dept }}>{{ d.dept_code }} — {{ dept_names.get(d.dept_code,'?') }}</option>{% endfor %}
+      </select></div>
+    <div><label>Year</label>
+      <select name="year"><option value="">All</option>
+        {% for y in [1,2,3,4] %}<option value="{{ y }}" {{ 'selected' if f_year==(y|string) }}>{{ y }}</option>{% endfor %}
+      </select></div>
+    <div><label>Status</label>
+      <select name="status"><option value="">All</option>
+        {% for s in ['active','excluded'] %}<option value="{{ s }}" {{ 'selected' if s==f_status }}>{{ s }}</option>{% endfor %}
+      </select></div>
+    <div><button class="btn" type="submit">Filter</button></div>
+  </form>
+
+  <table>
+    <thead><tr>
+      <th>Reg No</th><th>Email</th><th>Prog</th><th>Year</th><th>Sec</th>
+      <th>Status</th><th>Exclusion</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for s in students %}
+        <tr>
+          <td>{{ s.reg_no }}</td>
+          <td>{{ s.email }}</td>
+          <td>{{ s.dept_code }}</td>
+          <td>{{ s.year_of_study }}</td>
+          <td>{{ s.section }}</td>
+          <td>
+            {% if s.status=='excluded' %}<span class="pill warn">excluded</span>
+            {% else %}<span class="pill ok">active</span>{% endif %}
+          </td>
+          <td class="muted">{% if s.status=='excluded' %}{{ s.excl_reason }} {{ s.excl_effective or '' }}{% endif %}</td>
+          <td>
+            {% if s.status=='excluded' %}
+              <form class="inline" method="post" action="{{ url_for('admin.students_include') }}">
+                <input type="hidden" name="cycle" value="{{ cycle_code }}">
+                <input type="hidden" name="reg_no" value="{{ s.reg_no }}">
+                <button class="btn small" type="submit">Undo</button></form>
+            {% else %}
+              <form class="inline" method="post" action="{{ url_for('admin.students_exclude') }}">
+                <input type="hidden" name="cycle" value="{{ cycle_code }}">
+                <input type="hidden" name="reg_no" value="{{ s.reg_no }}">
+                <input type="hidden" name="reason" value="TC">
+                <button class="btn small danger" type="submit">Exclude</button></form>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8">No roster for {{ cycle_code }} yet — download the template, fill it, and upload.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+{% endblock %}

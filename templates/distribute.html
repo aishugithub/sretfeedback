@@ -1,0 +1,154 @@
+{# ==========================================================================
+   distribute.html  —  Results / Distribution control page (V2.0 · §6/§7)
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: the post-close workflow the professor runs from the Cycles
+   page. Four actions live here, top to bottom:
+     1. set the POOR threshold (+ optional section cut / min responses),
+     2. run scoring + classification,
+     3. review every teacher's courses with their score + GOOD/POOR band,
+     4. edit the faculty email preamble and send — one email per teacher, a
+        report PDF per course, and an inline "File ATR" link under POOR courses.
+   All the computation is in classification.py / distribution.py; this page only
+   drives them. Backed by admin.distribute_* routes in admin/cycles.py.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Results &amp; Distribution · {{ cycle.code }}{% endblock %}
+{% block content %}
+
+  <h2 style="margin-top:0">Results &amp; Distribution
+    <span class="muted">· {{ cycle.label }}</span>
+    {% if cycle.is_test %}<span class="pill warn">TEST</span>{% endif %}
+    {% if cycle.is_open %}<span class="pill ok">OPEN</span>
+    {% else %}<span class="pill warn">{{ cycle.status or 'CLOSED' }}</span>{% endif %}
+  </h2>
+  <p class="stat">Set the pass mark, classify the results, review who falls below it,
+  then send every teacher their report. Below-mark courses automatically get a
+  “File your ATR” link in the same email.</p>
+
+  {# ---- 1. THRESHOLD (the POOR level) ------------------------------------- #}
+  <div class="card">
+    <h3 style="margin-top:0">1 · Set the POOR level</h3>
+    <form method="post"
+          action="{{ url_for('admin.distribute_thresholds', cycle_id=cycle.id) }}"
+          style="display:flex; gap:16px; align-items:end; flex-wrap:wrap">
+      <div class="field" style="margin:0">
+        <label>POOR when overall is below (out of 10)</label>
+        <input name="threshold_overall" value="{{ '%.1f'|format(cycle.threshold_overall or 8.0) }}"
+               style="width:120px" placeholder="8.0">
+      </div>
+      <div class="field" style="margin:0">
+        <label>Optional: any section below <span class="muted">(blank = off)</span></label>
+        <input name="threshold_section"
+               value="{{ '%.1f'|format(cycle.threshold_section) if cycle.threshold_section is not none else '' }}"
+               style="width:120px" placeholder="off">
+      </div>
+      <div class="field" style="margin:0">
+        <label>Minimum responses to band</label>
+        <input name="min_responses" value="{{ cycle.min_responses or 10 }}"
+               style="width:120px" placeholder="10">
+      </div>
+      <button class="btn" type="submit">Save &amp; re-classify</button>
+    </form>
+    <p class="muted" style="margin-bottom:0">A course with fewer than the minimum
+    responses is left “insufficient” (not banded, no ATR) so tiny samples don’t
+    force a report.</p>
+  </div>
+
+  {# ---- 2. CLASSIFY -------------------------------------------------------- #}
+  <div class="card">
+    <h3 style="margin-top:0">2 · Run scoring &amp; classification</h3>
+    <p class="muted" style="margin-top:0">Scores every course and marks each GOOD or
+    POOR against the level above. Safe to re-run any time (e.g. after late submissions).</p>
+    <form method="post" action="{{ url_for('admin.distribute_classify', cycle_id=cycle.id) }}">
+      <button class="btn" type="submit">Run scoring &amp; classification</button>
+    </form>
+  </div>
+
+  {# ---- 3. THE TEACHER / COURSE LIST -------------------------------------- #}
+  <div class="cards">
+    <div class="metric"><div class="n">{{ n_faculty }}</div><div class="l">teachers</div></div>
+    <div class="metric"><div class="n">{{ tally.GOOD }}</div><div class="l">GOOD courses</div></div>
+    <div class="metric"><div class="n" style="color:#b23">{{ tally.POOR }}</div><div class="l">POOR courses</div></div>
+    <div class="metric"><div class="n">{{ n_poor_faculty }}</div><div class="l">teachers with an ATR</div></div>
+    <div class="metric"><div class="n">{{ tally.INSUF }}</div><div class="l">insufficient (n too low)</div></div>
+  </div>
+
+  {% if rows %}
+    <table>
+      <thead><tr>
+        <th>Dept</th><th>Yr</th><th>Course</th><th>Teacher</th>
+        <th>Responses</th><th>Overall /10</th><th>Band</th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+          <tr {% if r.band=='POOR' %}style="background:#fdeeee"{% endif %}>
+            <td>{{ r.dept_code }}</td>
+            <td>{{ r.year_of_study }}</td>
+            <td>{{ r.course_code }}<div class="muted">{{ r.course_name }}</div></td>
+            <td>{{ r.faculty }}{% if not r.faculty_email %}
+                <div class="muted" style="color:#b23">no email — won’t be mailed</div>{% endif %}</td>
+            <td>{{ r.n_responses }}</td>
+            <td>{{ '%.2f'|format(r.overall_score) if r.overall_score is not none else '—' }}</td>
+            <td>
+              {% if r.band=='GOOD' %}<span class="pill ok">GOOD</span>
+              {% elif r.band=='POOR' %}<span class="pill" style="background:#fbe0e0;color:#a11">POOR</span>
+              {% else %}<span class="muted">insufficient</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="warn">No classified results yet. Run <b>scoring &amp; classification</b>
+    above first — then the teacher list appears here.</div>
+  {% endif %}
+
+  {# ---- 4. THE EMAIL + SEND ----------------------------------------------- #}
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin-top:0">4 · Email the teachers</h3>
+
+    {# Live-mail status, mirroring the Tokens/Participation warning. #}
+    {% if cycle.is_test %}
+      <div class="warn"><b>TEST cycle:</b> unless you set a redirect address below,
+      every email goes to the built-in test address
+      <code>{{ mail.test_redirect }}</code> — no real teacher is mailed.</div>
+    {% elif mail.live %}
+      <div class="warn"><b>Live email is ON</b> (from {{ mail.from_addr }}). Sending
+      will deliver to real faculty inboxes — unless you set a redirect address below.</div>
+    {% else %}
+      <div class="tip"><b>Dev mode:</b> no email leaves the laptop — each message
+      (with its PDF attachment) is written to <code>app/outbox/</code> so you can
+      open and check it first. Ideal for a dry run.</div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('admin.distribute_send', cycle_id=cycle.id) }}">
+      <div class="field">
+        <label>Email preamble (tops every teacher’s email; their course lines,
+          scores and any ATR link are added automatically below it)</label>
+        <textarea name="intro" rows="5" style="width:100%; max-width:720px">{{ intro }}</textarea>
+      </div>
+      <div class="field">
+        <label>Send everything to this address instead <span class="muted">(for
+          testing — leave blank to mail the real teachers)</span></label>
+        <input name="redirect_to" type="email" placeholder="you@example.com"
+               style="width:100%; max-width:420px">
+        <p class="muted" style="margin:4px 0 0">When filled, <b>every</b> teacher’s
+        email (including teachers whose email column is blank) is sent to this one
+        address, so you can review the whole run in your own inbox.</p>
+      </div>
+      <label class="muted" style="display:block; margin-bottom:10px">
+        <input type="checkbox" name="send_leaders">
+        also send department / college roll-up emails to HODs, Vice Dean &amp; Dean
+      </label>
+      <button class="btn" type="submit"
+              onclick="return confirm('Send results for {{ cycle.code }} now?');">
+        Generate &amp; Send
+      </button>
+      <a class="btn grey" href="{{ url_for('admin.reports_home', cycle_id=cycle.id) }}">Open Reports page</a>
+    </form>
+    <p class="muted" style="margin-bottom:0">Each teacher gets one email with a
+    <b>single combined PDF</b> of all their courses; any course below the POOR level
+    carries a “File your ATR” link in that same email.</p>
+  </div>
+
+{% endblock %}

@@ -1,0 +1,110 @@
+{# ==========================================================================
+   tokens_page.html  —  Generate tokens + send links for a batch (spec 6.6, 8, 12)
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Tokens · {{ cycle.label }}{% endblock %}
+{% block content %}
+
+  <h2 style="margin-top:0">Generate tokens &amp; email links — {{ cycle.label }}</h2>
+
+  {# ======================================================================
+     PRE-SEND MAIL STATUS BANNER
+     Shows, BEFORE anything is sent, exactly what "Generate & send" will do.
+     Three states, colour-coded from safe to dangerous:
+       * mail.live == False        -> GREEN  : dev mode, nothing leaves the laptop
+       * live but mail.is_test      -> AMBER  : real send, but redirected to the
+                                                test address; students are safe
+       * live and NOT test          -> RED    : real email to REAL students
+     mail.reaches_students is the single flag that captures the red case.
+     ====================================================================== #}
+  {% if not mail.live %}
+    <div class="flash" style="background:#e6f4ea; color:#1e4620; border:1px solid #b7dfc2">
+      <strong>✓ Mail: DEV mode (outbox) — no real email will be sent.</strong><br>
+      SMTP is not configured, so each link is written as an <code>.eml</code> file into
+      <code>app/outbox/</code>. Safe to test freely.
+    </div>
+  {% elif mail.is_test %}
+    <div class="flash" style="background:#fbf1d6; color:#7a5a00; border:1px solid #e6cf8a">
+      <strong>⚠ Mail: SMTP LIVE, but this is a TEST cycle.</strong><br>
+      Real mail <em>will</em> be sent via <code>{{ mail.host }}</code>, but EVERY message is
+      redirected to <strong>{{ mail.test_redirect }}</strong> and subject-tagged
+      <code>[TEST]</code>. Students will <strong>not</strong> be emailed.
+    </div>
+  {% else %}
+    <div class="flash" style="background:#fdecea; color:#7a1c15; border:1px solid #f0b3ac">
+      <strong>🔴 Mail: SMTP LIVE — real email will go to REAL students.</strong><br>
+      Sending via <code>{{ mail.host }}</code> from <code>{{ mail.from_addr }}</code>, with
+      <strong>no</strong> test redirect. Once sent, it cannot be recalled. To make this a dry
+      run instead: mark the cycle as <em>test</em> on the Cycles page, or leave SMTP unset.
+    </div>
+  {% endif %}
+
+  {% if not cycle.is_open %}
+    <div class="flash" style="background:#fbf1d6; color:#7a5a00">
+      This cycle is <strong>closed</strong>. You can still generate tokens, but students can't submit until you open it on the Cycles page.
+    </div>
+  {% endif %}
+
+  <div class="card">
+    <h3 style="margin-top:0">Choose a batch</h3>
+    <p class="muted">One token per eligible student per cycle. Re-running is safe — existing tokens are kept. Only <em>active</em> students within their programme duration get a link.</p>
+    <form method="post" action="{{ url_for('admin.tokens_generate', cycle_id=cycle.id) }}"
+          onsubmit="return confirmSend(this)"
+          style="display:flex; gap:12px; flex-wrap:wrap; align-items:end">
+      <div class="field" style="margin:0"><label>Programme</label>
+        <select name="programme" style="width:130px"><option value="">All</option>
+          {% for p in programmes %}<option value="{{ p.programme }}">{{ p.programme }}</option>{% endfor %}</select></div>
+      <div class="field" style="margin:0"><label>Department</label>
+        <select name="dept" style="width:200px"><option value="">All</option>
+          {% for d in depts %}<option value="{{ d.dept_code }}">{{ d.dept_code }} — {{ dept_names.get(d.dept_code,'?') }}</option>{% endfor %}</select></div>
+      <div class="field" style="margin:0"><label>Year (derived)</label>
+        <select name="year" style="width:100px"><option value="">All</option>
+          {% for y in [1,2,3,4] %}<option value="{{ y }}">Year {{ y }}</option>{% endfor %}</select></div>
+      <div class="field" style="margin:0"><label><input type="checkbox" name="send_email" checked> Email links now</label></div>
+      <button class="btn" type="submit">Generate &amp; send</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Email delivery mode</h3>
+    <p class="muted">If institutional SMTP is configured (env vars <code>FEEDBACK_SMTP_HOST</code> etc.), real email is sent. Otherwise a safe <strong>dev mode</strong> writes each message as an <code>.eml</code> file into <code>app/outbox/</code> so you can test the whole flow offline — open a file, copy the link, submit as a student.</p>
+    <a class="btn grey" href="{{ url_for('admin.cycles_email', cycle_id=cycle.id) }}">Edit the email text</a>
+    <a class="btn" href="{{ url_for('admin.participation', cycle_id=cycle.id) }}">View participation</a>
+  </div>
+
+  {# ----------------------------------------------------------------------
+     Last-chance confirm dialog. The mail state is baked in from the server
+     (mail.live / mail.is_test / mail.reaches_students) so the wording always
+     matches what will actually happen. If "Email links now" is unticked, we
+     only generate tokens, so no mail warning is needed.
+     --------------------------------------------------------------------- #}
+  <script>
+    function confirmSend(form) {
+      // Is the "Email links now" box ticked on this form?
+      var sendBox = form.querySelector('input[name="send_email"]');
+      var willEmail = sendBox && sendBox.checked;
+      if (!willEmail) {
+        return confirm("Generate tokens only — no email will be sent. Continue?");
+      }
+      {% if mail.reaches_students %}
+      // RED case: real SMTP, not a test cycle -> real students get real mail.
+      return confirm(
+        "⚠ REAL EMAIL TO REAL STUDENTS\n\n" +
+        "SMTP is live ({{ mail.host }}) and this is NOT a test cycle, so links " +
+        "will be delivered to students' real inboxes. This cannot be undone.\n\n" +
+        "Send for real?");
+      {% elif mail.is_test %}
+      // AMBER case: real send, redirected to the test address.
+      return confirm(
+        "Real mail will be sent, but this is a TEST cycle so every message goes " +
+        "to {{ mail.test_redirect }} (students are NOT contacted).\n\nContinue?");
+      {% else %}
+      // GREEN case: dev/outbox, nothing leaves the laptop.
+      return confirm(
+        "DEV mode: links will be written to app/outbox/ as .eml files. " +
+        "No real email will be sent.\n\nContinue?");
+      {% endif %}
+    }
+  </script>
+
+{% endblock %}

@@ -1,0 +1,114 @@
+{# ==========================================================================
+   users_list.html  —  Admin "Users & Roles" screen (Version 2.0 · §17 IAM)
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: the admin-facing management page for the leader accounts
+   (Dean, Vice Dean, HODs) that endorse ATRs. Backed by admin/users.py. It lets
+   the professor fix the seeded placeholder names/emails to the real leaders,
+   add new ones, enable/disable, and — the key action — email each leader a
+   one-time "set your password" link (individually, or in bulk to everyone who
+   has not set a password yet).
+
+   It extends base.html, so the header, admin nav and flash-message area come
+   for free; we only fill the {% block content %}.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Users & Roles · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <h2 style="margin-top:0">Users &amp; Roles</h2>
+  <p class="stat">
+    Leader logins for endorsing ATRs. Passwords are never set by the admin —
+    each leader sets their own via a one-time emailed link.
+    {% if pending %}
+      <strong>{{ pending }}</strong> active leader(s) have not set a password yet.
+    {% else %}
+      All active leaders have set a password.
+    {% endif %}
+  </p>
+
+  {# ---- Top actions: add a leader, and bulk-invite everyone still pending ---- #}
+  <div style="margin-bottom:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+    <a class="btn" href="{{ url_for('admin.user_new') }}">+ Add leader</a>
+    {% if pending %}
+      <form class="inline" method="post" action="{{ url_for('admin.user_invite_all') }}"
+            onsubmit="return confirm('Email a set-password link to all {{ pending }} leader(s) without a password?');">
+        <button class="btn grey" type="submit">
+          Send invites to all {{ pending }} without a password
+        </button>
+      </form>
+    {% endif %}
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Role</th><th>Name</th><th>Email</th><th>Scope</th>
+        <th>Password</th><th>Last login</th><th>Status</th><th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+        <tr>
+          <td><strong>{{ role_label.get(u.role, u.role) }}</strong></td>
+          <td>{{ u.name or '—' }}</td>
+          <td>{{ u.email }}</td>
+          <td>
+            {# 'ALL' means the whole college; otherwise show the dept code(s). #}
+            {% if u.scope_dept_ids == 'ALL' %}
+              <span class="pill ok">Whole college</span>
+            {% else %}
+              {% for code in u.scope_dept_ids.split(',') if code %}
+                <span class="pill warn" title="{{ dept_codes.get(code, '') }}">{{ code }}</span>
+              {% endfor %}
+            {% endif %}
+          </td>
+          <td>
+            {% if u.has_pw %}
+              <span class="pill ok">Set</span>
+            {% else %}
+              <span class="pill warn">Not set</span>
+            {% endif %}
+          </td>
+          <td class="muted">{{ u.last_login_at or 'never' }}</td>
+          <td>
+            {% if u.status == 'active' %}
+              <span class="pill ok">active</span>
+            {% else %}
+              <span class="pill warn">disabled</span>
+            {% endif %}
+          </td>
+          <td style="white-space:nowrap">
+            <a class="btn small grey" href="{{ url_for('admin.user_edit', user_id=u.id) }}">Edit</a>
+
+            {# Invite / Resend: SET link if no password yet, else a RESET link. #}
+            {% if u.status == 'active' %}
+              <form class="inline" method="post"
+                    action="{{ url_for('admin.user_invite', user_id=u.id) }}">
+                <button class="btn small" type="submit">
+                  {{ 'Send invite' if not u.has_pw else 'Resend / reset' }}
+                </button>
+              </form>
+            {% endif %}
+
+            {# Enable / disable (deprovision without deleting history). #}
+            <form class="inline" method="post"
+                  action="{{ url_for('admin.user_toggle', user_id=u.id) }}"
+                  onsubmit="return confirm('{{ 'Disable' if u.status == 'active' else 'Enable' }} {{ u.email }}?');">
+              <button class="btn small {{ 'danger' if u.status == 'active' else '' }}" type="submit">
+                {{ 'Disable' if u.status == 'active' else 'Enable' }}
+              </button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="muted" style="margin-top:14px">
+    Tip: the invite email links to <code>/leader/set-password</code>. For leaders
+    opening it off-campus, set <code>FEEDBACK_PUBLIC_BASE_URL</code> to your public
+    address (e.g. your PythonAnywhere URL) so the link is reachable; otherwise it
+    uses the address you are viewing this page from (fine on the college LAN).
+  </p>
+
+{% endblock %}

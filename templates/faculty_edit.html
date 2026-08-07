@@ -1,0 +1,88 @@
+{# ==========================================================================
+   faculty_edit.html  —  Add / edit one faculty (v2.0 · Module 5)
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: the add/edit form behind Manage Faculty (admin/faculty.py ->
+   faculty_new / faculty_edit). One template, two modes:
+     * `fac is None`      -> "Add faculty"  (POST to admin.faculty_new)
+     * `fac` present      -> "Edit faculty" (POST to admin.faculty_edit)
+   `fac` may be a real DB row OR the raw request.form echoed back after a
+   validation error; both expose the same keys via [] access, so we read with
+   fac['key'] guarded by fac.get where the object is a form.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if fac and fac['emp_no'] else 'Add' }} faculty · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  {% set is_edit = fac and fac['emp_no'] and (fac['name'] is defined) and request.endpoint == 'admin.faculty_edit' %}
+  <h2 style="margin-top:0">{{ 'Edit faculty' if request.endpoint == 'admin.faculty_edit' else 'Add faculty' }}</h2>
+
+  <div class="card">
+    <form method="post"
+          action="{{ url_for('admin.faculty_edit', emp_no=fac['emp_no']) if request.endpoint == 'admin.faculty_edit' else url_for('admin.faculty_new') }}">
+
+      <div class="field">
+        <label>Employee / Staff number (the unique key that links to courses)</label>
+        {% if request.endpoint == 'admin.faculty_edit' %}
+          {# emp_no is the link to offerings, so it is read-only once created. #}
+          <input value="{{ fac['emp_no'] }}" readonly style="background:#f0f2f5">
+          <input type="hidden" name="emp_no" value="{{ fac['emp_no'] }}">
+        {% else %}
+          <input name="emp_no" value="{{ fac['emp_no'] if fac else '' }}"
+                 placeholder="e.g. 16093" required>
+        {% endif %}
+      </div>
+
+      <div class="field">
+        <label>Full name</label>
+        <input name="name" value="{{ fac['name'] if fac else '' }}"
+               placeholder="e.g. Dr. V. Vanitha" required>
+      </div>
+
+      <div class="field">
+        <label>Email (used to send results &amp; ATR links)</label>
+        <input name="email" type="email" value="{{ fac['email'] if fac else '' }}"
+               placeholder="name@sret.edu.in">
+      </div>
+
+      <div class="field">
+        <label>Phone (optional)</label>
+        <input name="phone" value="{{ fac['phone'] if fac else '' }}"
+               placeholder="10-digit mobile">
+      </div>
+
+      <div class="field">
+        <label>Home department — which HOD this faculty belongs to</label>
+        <select name="home_dept_code">
+          <option value="">— Unassigned (set later) —</option>
+          {% for code, name in dept_codes.items() %}
+            <option value="{{ code }}"
+              {{ 'selected' if fac and fac['home_dept_code'] == code else '' }}>
+              {{ code }} — {{ name }}
+            </option>
+          {% endfor %}
+          <option value="EXTERNAL"
+            {{ 'selected' if fac and fac['home_dept_code'] == 'EXTERNAL' else '' }}>
+            External — no HOD (Vice Dean reviews)
+          </option>
+        </select>
+        <div class="muted" style="margin-top:4px">
+          This decides which HOD reviews their ATRs. <b>Unassigned</b> = no HOD yet
+          (shown to you/the Dean to fix, hidden from HODs). <b>External</b> = a
+          faculty with no HOD by design — only the Vice Dean sees their courses.
+        </div>
+      </div>
+
+      <div class="field">
+        <label>
+          <input type="checkbox" name="inactive"
+                 {{ 'checked' if fac and fac['status'] == 'inactive' else '' }}>
+          Mark inactive (kept on file, but excluded from active mailings)
+        </label>
+      </div>
+
+      <button class="btn" type="submit">{{ 'Save changes' if request.endpoint == 'admin.faculty_edit' else 'Add faculty' }}</button>
+      <a class="btn grey" href="{{ url_for('admin.faculty_list') }}">Cancel</a>
+    </form>
+  </div>
+
+{% endblock %}

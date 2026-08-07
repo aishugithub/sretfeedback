@@ -1,0 +1,74 @@
+{# ==========================================================================
+   dashboard.html  —  Admin home screen (spec Section 6)
+   Single landing page: health metrics + links to every control surface.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Dashboard · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <div style="display:flex; align-items:end; justify-content:space-between; flex-wrap:wrap; gap:10px">
+    <h2 style="margin:0">Overview</h2>
+    {# Cycle selector — the metrics below are for this cycle only. Auto-submits. #}
+    <form method="get" action="{{ url_for('admin.dashboard') }}"
+          style="display:flex; gap:8px; align-items:end; margin:0">
+      <div class="field" style="margin:0">
+        <label>Cycle</label>
+        <select name="cycle" onchange="this.form.submit()">
+          {% for c in cycles %}
+            <option value="{{ c.code }}" {{ 'selected' if c.code==cycle_code }}>{{ c.code }} — {{ c.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </form>
+  </div>
+  <p class="muted" style="margin:4px 0 10px">Metrics below are for cycle <strong>{{ cycle_code }}</strong>.</p>
+  <div class="cards">
+    <div class="metric"><div class="n">{{ n_offerings }}</div><div class="l">Course offerings</div></div>
+    <div class="metric"><div class="n">{{ n_uncat }}</div><div class="l">Offerings without a category</div></div>
+    <div class="metric"><div class="n">{{ n_students }}</div><div class="l">Students in this cycle</div></div>
+    <div class="metric"><div class="n">{{ n_active }}</div><div class="l">Active students</div></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Active academic year</h3>
+    {% if ay %}
+      <p><strong>{{ ay.ay_label }}</strong> · start year {{ ay.start_year }} ·
+         {{ ay.current_sem }} semester.
+         <span class="muted">Every student's year of study is derived from this.</span></p>
+    {% else %}
+      <p class="flash error">No active academic year set. Set one on the Students page.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Feedback cycles</h3>
+    <table>
+      <thead><tr><th>Code</th><th>Label</th><th>State</th><th>Actions</th></tr></thead>
+      <tbody>
+      {% for c in cycles %}
+        <tr>
+          <td>{{ c.code }}</td>
+          <td>{{ c.label }}</td>
+          <td>{% if c.is_open %}<span class="pill ok">OPEN</span>{% else %}<span class="pill warn">closed</span>{% endif %}</td>
+          <td>
+            <a class="btn small" href="{{ url_for('admin.tokens_page', cycle_id=c.id) }}">Tokens</a>
+            <a class="btn small" href="{{ url_for('admin.participation', cycle_id=c.id) }}">Participation</a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p style="margin-top:12px"><a class="btn" href="{{ url_for('admin.cycles_list') }}">Manage cycles &amp; email text</a></p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Quick start (end-to-end)</h3>
+    <ol class="muted" style="line-height:1.7">
+      <li>Load students: <a href="{{ url_for('admin.students_upload') }}">upload the first-year Excel</a>, or seed demo students on the Students page.</li>
+      <li>Confirm every offering has a category on the <a href="{{ url_for('admin.roster_list') }}">Offerings</a> page.</li>
+      <li>On <a href="{{ url_for('admin.cycles_list') }}">Cycles</a>, edit the email text and <strong>Open</strong> the cycle.</li>
+      <li>Generate tokens &amp; send links for a batch, then watch the Participation board.</li>
+    </ol>
+  </div>
+
+{% endblock %}

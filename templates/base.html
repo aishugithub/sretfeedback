@@ -1,0 +1,98 @@
+{# ==========================================================================
+   base.html  —  Shared page shell for every admin AND student screen
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: Flask/Jinja2 templates "extend" this base so every page
+   shares one header, stylesheet and flash-message area. Admin pages keep the
+   nav; student pages override the {% block nav %} to hide it. One shell means a
+   later restyle touches one file, not many.
+   ========================================================================== #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}SRET Feedback{% endblock %}</title>
+  <style>
+    /* Minimal, dependency-free styling so the app runs offline on the LAN. */
+    body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#f5f6f8; color:#1c1e21; }
+    header { background:#0b3d68; color:#fff; padding:14px 22px; }
+    header h1 { margin:0; font-size:18px; font-weight:600; }
+    header .sub { font-size:12px; opacity:.85; }
+    .wrap { max-width:1150px; margin:22px auto; padding:0 18px; }
+    table { border-collapse:collapse; width:100%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+    th, td { text-align:left; padding:8px 10px; border-bottom:1px solid #e6e8eb; font-size:13px; vertical-align:top; }
+    th { background:#eef1f4; position:sticky; top:0; }
+    tr:hover td { background:#fafbfc; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; }
+    .pill.ok { background:#e3f4e6; color:#1b6b2b; }
+    .pill.warn { background:#fbe6c8; color:#8a5a00; }
+    a.btn, button.btn { display:inline-block; background:#0b5ec0; color:#fff; border:none;
+      padding:7px 13px; border-radius:6px; font-size:13px; text-decoration:none; cursor:pointer; }
+    a.btn.small, button.btn.small { padding:4px 9px; font-size:12px; }
+    .filters { margin-bottom:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:end; }
+    .filters label { font-size:12px; display:block; }
+    .filters select, .filters input { padding:6px; font-size:13px; }
+    .flash { padding:10px 14px; border-radius:6px; margin-bottom:14px; font-size:13px; }
+    .flash.success { background:#e3f4e6; color:#1b6b2b; }
+    .flash.error { background:#fbe0e0; color:#a11; }
+    .stat { font-size:13px; color:#444; margin-bottom:12px; }
+    form.inline { display:inline; }
+    .field { margin-bottom:14px; }
+    .field label { display:block; font-size:12px; color:#555; margin-bottom:4px; }
+    .field input, .field select, .field textarea { width:100%; max-width:620px; padding:8px; font-size:14px; }
+    .card { background:#fff; padding:20px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.08); max-width:760px; margin-bottom:16px; }
+    /* Top navigation across the admin control panel (spec Section 6). */
+    nav.admin { background:#08324f; padding:0 22px; display:flex; gap:2px; flex-wrap:wrap; }
+    nav.admin a { color:#cfe1f2; text-decoration:none; font-size:13px; padding:10px 12px; }
+    nav.admin a:hover { background:#0b3d68; color:#fff; }
+    /* Dashboard health cards. */
+    .cards { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:18px; }
+    .metric { background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.08); padding:16px 20px; min-width:150px; }
+    .metric .n { font-size:26px; font-weight:700; color:#0b3d68; }
+    .metric .l { font-size:12px; color:#666; }
+    .btn.danger { background:#b23; }
+    .btn.grey { background:#667; }
+    .muted { color:#888; font-size:12px; }
+    .bar { height:10px; background:#e6e8eb; border-radius:6px; overflow:hidden; max-width:220px; }
+    .bar > span { display:block; height:100%; background:#1b9e4b; }
+    /* Student form styling — larger touch targets for phones on the LAN. */
+    .qsection { margin:18px 0 6px; font-weight:600; color:#0b3d68; border-bottom:1px solid #dfe3e7; padding-bottom:4px; }
+    .qtext { margin:12px 0 6px; font-size:15px; }
+    .opts label { display:block; padding:8px 10px; margin:4px 0; border:1px solid #d5d9de; border-radius:6px; font-size:14px; cursor:pointer; }
+    .opts label:hover { background:#f0f5fb; }
+    textarea { width:100%; max-width:620px; padding:8px; font-size:14px; font-family:inherit; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SRET — Automated Feedback System</h1>
+    <div class="sub">{% block subtitle %}Admin control panel{% endblock %}</div>
+  </header>
+  {# Admin nav; student pages override this block to hide it. #}
+  {% block nav %}
+  <nav class="admin">
+    <a href="{{ url_for('admin.dashboard') }}">Dashboard</a>
+    <a href="{{ url_for('admin.students_list') }}">Roster</a>
+    <a href="{{ url_for('admin.allocation_upload') }}">Allocation</a>
+    <a href="{{ url_for('admin.enrollment_upload') }}">Enrollment</a>
+    <a href="{{ url_for('admin.roster_list') }}">Offerings</a>
+    <a href="{{ url_for('admin.faculty_list') }}">Manage Faculty</a>
+    <a href="{{ url_for('admin.readiness_page') }}">Readiness</a>
+    <a href="{{ url_for('admin.categories_list') }}">Categories</a>
+    <a href="{{ url_for('admin.templates_list') }}">Templates</a>
+    <a href="{{ url_for('admin.cycles_list') }}">Cycles</a>
+    <a href="{{ url_for('admin.reports_home') }}">Reports</a>
+    <a href="{{ url_for('admin.users_list') }}">Users &amp; Roles</a>
+    <a href="{{ url_for('admin.activity_log_view') }}">Activity</a>
+  </nav>
+  {% endblock %}
+  <div class="wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

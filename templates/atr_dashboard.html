@@ -1,0 +1,98 @@
+{# ==========================================================================
+   atr_dashboard.html  —  A leader's RBAC-scoped ATR queue
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: served by atr.atr_dashboard. The `rows` are ALREADY filtered
+   through rbac.visible_offerings in the route, so an E01 HOD only ever sees E01
+   ATRs here (spec §4). Rows where `mine` is true are in THIS leader's action
+   queue (owner role == their role). Minimal, functional — UI polish deferred.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block subtitle %}ATR dashboard — {{ leader.role }} ({{ leader.email }}){% endblock %}
+{% block nav %}
+  <nav class="admin">
+    <a href="{{ url_for('atr.atr_dashboard') }}">My ATRs</a>
+    <a href="{{ url_for('atr.leader_logout') }}">Log out</a>
+  </nav>
+{% endblock %}
+{% block content %}
+  <div class="filters">
+    <form method="get" action="{{ url_for('atr.atr_dashboard') }}">
+      <label>Cycle
+        <select name="cycle" onchange="this.form.submit()">
+          {% for c in cycles %}
+            <option value="{{ c.code }}" {{ 'selected' if selected and c.code==selected.code }}>
+              {{ c.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+  </div>
+
+  {% if not rows %}
+    <p class="stat">No ATRs in your scope for this cycle yet.</p>
+  {% else %}
+  <table>
+    <tr><th>Dept</th><th>Course</th><th>Faculty</th><th>State</th><th>Owner</th><th></th></tr>
+    {% for r in rows %}
+      <tr>
+        <td>{{ r.offering.dept_code }}</td>
+        <td>{{ r.offering.course_code }}<br><span class="muted">{{ r.offering.course_name }}</span></td>
+        <td>{{ r.offering.faculty or r.offering.faculty_email }}</td>
+        <td><span class="pill {{ 'warn' if r.atr.state != 'CLOSED' else 'ok' }}">{{ r.atr.state }}</span></td>
+        <td>{{ r.atr.current_owner_role or '—' }}
+            {% if r.mine %}<span class="pill warn">action</span>{% endif %}</td>
+        <td>
+          <a class="btn small" href="{{ url_for('atr.atr_review', cycle_code=selected.code, atr_id=r.atr.id) }}">Review</a>
+          {% if leader.role == 'HOD' and r.atr.state == 'EXPECTED' and r.offering.faculty_email %}
+            <form class="inline" method="post"
+                  action="{{ url_for('atr.atr_remind', cycle_code=selected.code, offering_id=r.offering.id) }}">
+              <button class="btn small grey" type="submit">Send reminder</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {# ---- Module 5: courses with NO HOD, surfaced only to college-wide leaders ---- #}
+  {% if external_rows %}
+    <h3 style="margin-top:26px">External faculty — no HOD review</h3>
+    <p class="muted">These faculty have no Head of Department by design, so their
+    courses are not part of the HOD endorsement flow. They are shown here for the
+    Vice Dean's awareness. (No ATR email is sent when there is no email on record.)</p>
+    <table>
+      <tr><th>Dept</th><th>Course</th><th>Faculty</th><th>Band</th><th>Overall</th><th>Responses</th></tr>
+      {% for r in external_rows %}
+        <tr>
+          <td>{{ r.dept_code }}</td>
+          <td>{{ r.course_code }}<br><span class="muted">{{ r.course_name }}</span></td>
+          <td>{{ r.faculty or r.faculty_id }}</td>
+          <td>{% if r.band %}<span class="pill {{ 'warn' if r.band=='POOR' else 'ok' }}">{{ r.band }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>{{ '%.2f'|format(r.overall_score) if r.overall_score is not none else '—' }}</td>
+          <td>{{ r.n_responses if r.n_responses is not none else '—' }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+
+  {% if unassigned_rows %}
+    <h3 style="margin-top:26px">Unassigned faculty — no department set</h3>
+    <p class="muted">These faculty are not yet assigned to a department, so no HOD
+    owns their courses. Assign each of them a home department on
+    <b>Admin → Manage Faculty</b> so their ATRs route correctly.</p>
+    <table>
+      <tr><th>Course dept</th><th>Course</th><th>Faculty</th><th>Emp No</th><th>Band</th><th>Overall</th></tr>
+      {% for r in unassigned_rows %}
+        <tr>
+          <td>{{ r.dept_code }}</td>
+          <td>{{ r.course_code }}<br><span class="muted">{{ r.course_name }}</span></td>
+          <td>{{ r.faculty or '—' }}</td>
+          <td><code>{{ r.faculty_id or '—' }}</code></td>
+          <td>{% if r.band %}<span class="pill {{ 'warn' if r.band=='POOR' else 'ok' }}">{{ r.band }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>{{ '%.2f'|format(r.overall_score) if r.overall_score is not none else '—' }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+{% endblock %}

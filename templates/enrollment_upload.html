@@ -1,0 +1,67 @@
+{# enrollment_upload.html — elective enrollment upload (spec v3 §7.3) #}
+{% extends "base.html" %}
+{% block title %}Enrollment · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <div class="card">
+    <h3 style="margin-top:0">Elective enrollment — cycle {{ cycle_code }}</h3>
+    <p class="muted">Pick the elective course + faculty group, then upload a single column of register numbers. Every student must be in this cycle's roster and cannot appear in another faculty's group for the same course.</p>
+    {% if cycles %}
+      <form class="inline" method="get" action="{{ url_for('admin.enrollment_upload') }}">
+        <label class="muted">Cycle
+          <select name="cycle" onchange="this.form.submit()">
+            {% for c in cycles %}<option value="{{ c.code }}" {{ 'selected' if c.code==cycle_code }}>{{ c.code }}</option>{% endfor %}
+          </select></label>
+      </form>
+    {% endif %}
+
+    {% if electives %}
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('admin.enrollment_upload', cycle=cycle_code) }}">
+        <div class="field"><label>Course / faculty group</label>
+          <select name="offering_id" required>
+            <option value="">— choose —</option>
+            {% for e in electives %}
+              <option value="{{ e.id }}" {{ 'selected' if selected==e.id }}>
+                {{ e.course_code }} · {{ e.elective_basket }} · {{ e.faculty }} ({{ e.enrolled }} enrolled)
+              </option>
+            {% endfor %}
+          </select></div>
+        <div class="field"><input type="file" name="file" accept=".xlsx" required></div>
+        <button class="btn" type="submit">Validate (dry run)</button>
+      </form>
+    {% else %}
+      <p class="flash" style="background:#fbf1d6; color:#7a5a00">No elective assignments in the allocation for {{ cycle_code }} yet. Upload an allocation with ELECTIVE rows first.</p>
+    {% endif %}
+  </div>
+
+  {% if summary %}
+    <div class="card">
+      <h3 style="margin-top:0">Reconciliation</h3>
+      {% set r = summary.reconciliation %}
+      {% if r %}<p><strong>{{ r.course_code }}</strong> · {{ r.faculty }} —
+        <strong>{{ summary.enrolled }}</strong> of {{ summary.rows }} rows valid.</p>{% endif %}
+
+      {% if summary.errors %}
+        <div class="flash error">
+          <strong>{{ summary.errors|length }} error(s) — nothing committed:</strong>
+          <ul>{% for e in summary.errors %}<li>{{ e }}</li>{% endfor %}</ul>
+        </div>
+      {% else %}
+        <div class="flash success">All checks passed. Confirm to enroll {{ summary.enrolled }} student(s).</div>
+        <form method="post" action="{{ url_for('admin.enrollment_upload', cycle=cycle_code) }}">
+          <input type="hidden" name="confirm" value="yes">
+          <input type="hidden" name="offering_id" value="{{ selected }}">
+          <input type="hidden" name="staged" value="{{ staged }}">
+          <button class="btn" type="submit">Confirm &amp; commit enrollment</button>
+        </form>
+      {% endif %}
+
+      {% if summary.warnings %}
+        <div class="flash" style="background:#fbf1d6; color:#7a5a00">
+          <ul>{% for w in summary.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+{% endblock %}

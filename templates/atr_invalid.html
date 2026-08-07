@@ -1,0 +1,18 @@
+{# ==========================================================================
+   atr_invalid.html  —  Shown when a magic/set-password link cannot be used
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: rendered by several routes when a token fails verification
+   (unknown, expired, already used, wrong offering/purpose). No nav; it is a
+   dead-end page a faculty/leader reaches from a bad or spent link.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block subtitle %}Link problem{% endblock %}
+{% block nav %}{% endblock %}
+{% block content %}
+  <div class="card">
+    <h2 style="margin-top:0">This link cannot be used</h2>
+    <p>{{ reason }}</p>
+    <p class="muted">If you believe this is a mistake, contact your HOD or the
+      feedback administrator to have a fresh link sent.</p>
+  </div>
+{% endblock %}

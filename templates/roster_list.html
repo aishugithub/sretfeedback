@@ -1,0 +1,109 @@
+{# ==========================================================================
+   roster_list.html  —  The offering roster (spec Section 6, item 1)
+   --------------------------------------------------------------------------
+   Lists every course-offering produced by the allocation auto-converter, with
+   dept/year/programme filters and a per-row "Edit" link. The banner surfaces
+   how many offerings still have no category so the professor knows what to fix.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Roster · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  {# ---- Cycle selector: offerings are cycle-scoped, so pick the cycle first.
+         Auto-submits on change, like the Students page. ---- #}
+  <div class="card" style="margin-bottom:12px">
+    <form method="get" action="{{ url_for('admin.roster_list') }}"
+          style="display:flex; gap:10px; align-items:end; margin:0">
+      <div class="field" style="margin:0">
+        <label>Cycle</label>
+        <select name="cycle" onchange="this.form.submit()">
+          {% for c in cycles %}
+            <option value="{{ c.code }}" {{ 'selected' if c.code==cycle_code }}>{{ c.code }} — {{ c.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <span class="muted">Showing offerings for <strong>{{ cycle_code }}</strong> only.</span>
+    </form>
+  </div>
+
+  <div class="stat">
+    <strong>{{ total }}</strong> offerings in {{ cycle_code }}.
+    {% if uncategorised %}
+      <span class="pill warn">{{ uncategorised }} need a category</span>
+    {% else %}
+      <span class="pill ok">all categorised</span>
+    {% endif %}
+  </div>
+
+  {# ---- Filter bar: a plain GET form so filters live in the URL. The hidden
+         cycle field keeps the dept/year/programme filters within the chosen
+         cycle instead of silently resetting it. ---- #}
+  <form class="filters" method="get" action="{{ url_for('admin.roster_list') }}">
+    <input type="hidden" name="cycle" value="{{ cycle_code }}">
+    <div>
+      <label>Programme</label>
+      <select name="programme">
+        <option value="">All</option>
+        {% for p in programmes %}
+          <option value="{{ p.programme }}" {{ 'selected' if p.programme==f_programme }}>{{ p.programme }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Department</label>
+      <select name="dept">
+        <option value="">All</option>
+        {% for d in depts %}
+          <option value="{{ d.dept_code }}" {{ 'selected' if d.dept_code==f_dept }}>
+            {{ d.dept_code }} — {{ dept_names.get(d.dept_code, '?') }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Year</label>
+      <select name="year">
+        <option value="">All</option>
+        {% for y in years %}
+          <option value="{{ y.year_of_study }}" {{ 'selected' if y.year_of_study|string==f_year }}>Year {{ y.year_of_study }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div><button class="btn" type="submit">Filter</button></div>
+  </form>
+
+  {# ---- The roster table ---- #}
+  <table>
+    <thead>
+      <tr>
+        <th>Prog</th><th>Dept</th><th>Yr</th><th>Sem</th><th>Sec</th>
+        <th>Course Code</th><th>Course Name</th><th>Faculty</th>
+        <th>Category</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>{{ r.programme }}</td>
+          <td>{{ r.dept_code }}</td>
+          <td>{{ r.year_of_study }}</td>
+          <td>{{ r.semester if r.semester is not none else '' }}</td>
+          <td>{{ r.section if r.section else '' }}</td>
+          <td>{{ r.course_code if r.course_code else '(none)' }}</td>
+          <td>{{ r.course_name if r.course_name else '' }}</td>
+          <td>{{ r.faculty if r.faculty else '' }}</td>
+          <td>
+            {% if r.category_name %}
+              <span class="pill ok">{{ r.category_name }}</span>
+            {% else %}
+              <span class="pill warn">unset</span>
+            {% endif %}
+          </td>
+          <td><a class="btn small" href="{{ url_for('admin.roster_edit', offering_id=r.id) }}">Edit</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="10">No offerings for {{ cycle_code }} yet — upload the course allocation for this cycle.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+{% endblock %}

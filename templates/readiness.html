@@ -1,0 +1,108 @@
+{# readiness.html — the Readiness Check gate (spec v3 §8) #}
+{% extends "base.html" %}
+{% block title %}Readiness · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <div class="card" style="max-width:100%">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
+      <h3 style="margin:0">Readiness Check — cycle
+        <form class="inline" method="get" action="{{ url_for('admin.readiness_page') }}">
+          <select name="cycle" onchange="this.form.submit()">
+            {% for c in cycles %}<option value="{{ c.code }}" {{ 'selected' if c.code==cycle_code }}>{{ c.code }}</option>{% endfor %}
+          </select></form>
+      </h3>
+      <a class="btn small grey" href="{{ url_for('admin.readiness_export', cycle=cycle_code) }}">⬇ Export CSV</a>
+    </div>
+
+    {# The big status banner: green when READY, red otherwise. #}
+    {% if r.state == 'READY' %}
+      <div class="flash success" style="font-size:15px">🟢 {{ r.banner }}</div>
+    {% else %}
+      <div class="flash error" style="font-size:15px">🔴 {{ r.banner }}</div>
+    {% endif %}
+
+    {# Summary tiles. #}
+    <div class="cards">
+      <div class="metric"><div class="n">{{ r.tiles.assignments }}</div><div class="l">assignments</div></div>
+      <div class="metric"><div class="n">{{ r.tiles.faculty }}</div><div class="l">faculty</div></div>
+      <div class="metric"><div class="n">{{ r.tiles.students }}</div><div class="l">students</div></div>
+      <div class="metric"><div class="n">{{ r.tiles.forms }}</div><div class="l">forms to issue</div></div>
+      <div class="metric"><div class="n">{{ r.tiles.emails }}</div><div class="l">emails</div></div>
+      <div class="metric"><div class="n">{{ r.excluded }}</div><div class="l">excluded</div></div>
+    </div>
+    {% if r.tiles.needs_stagger %}
+      <p class="flash" style="background:#fbf1d6; color:#7a5a00">Email volume ({{ r.tiles.emails }}) exceeds the ~{{ r.tiles.email_cap }}/day cap — stagger the send across 2–3 days (§10.1).</p>
+    {% endif %}
+  </div>
+
+  {# FLAGGED ITEMS FIRST (spec §8.2). #}
+  {% if r.flagged or r.reverse %}
+    <div class="card" style="max-width:100%">
+      <h3 style="margin-top:0">Flagged items — resolve or dismiss with a reason</h3>
+      <table>
+        <thead><tr><th>What</th><th>Where</th><th>Why</th><th>Dismiss (with reason)</th></tr></thead>
+        <tbody>
+          {% for f in r.flagged %}
+            <tr>
+              <td>{{ f.course_code }} · {{ f.faculty }}
+                {% if f.severity=='red' %}<span class="pill warn">error</span>{% else %}<span class="pill warn">pending</span>{% endif %}</td>
+              <td>{{ f.prog }} / Y{{ f.year }} / {{ f.section }} · {{ f.type }}</td>
+              <td>{{ f.why }}</td>
+              <td>
+                <form method="post" action="{{ url_for('admin.readiness_dismiss') }}" style="display:flex; gap:6px">
+                  <input type="hidden" name="cycle" value="{{ cycle_code }}">
+                  <input type="hidden" name="check_key" value="{{ f.status|lower }}:{{ f.offering_id }}">
+                  <input name="reason" placeholder="reason" required style="font-size:12px">
+                  <button class="btn small" type="submit">Dismiss</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          {% for rev in r.reverse %}
+            <tr>
+              <td>(class with no courses) <span class="pill warn">error</span></td>
+              <td>{{ rev.prog }} / Y{{ rev.year }} / {{ rev.section }} · {{ rev.students }} students</td>
+              <td>{{ rev.why }}</td>
+              <td>
+                <form method="post" action="{{ url_for('admin.readiness_dismiss') }}" style="display:flex; gap:6px">
+                  <input type="hidden" name="cycle" value="{{ cycle_code }}">
+                  <input type="hidden" name="check_key" value="{{ rev.check_key }}">
+                  <input name="reason" placeholder="reason" required style="font-size:12px">
+                  <button class="btn small" type="submit">Dismiss</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {# FULL LIST (spec §8.2). #}
+  <div class="card" style="max-width:100%">
+    <h3 style="margin-top:0">All teaching assignments</h3>
+    <table>
+      <thead><tr><th>Course</th><th>Faculty</th><th>Prog/Yr/Sec</th><th>Type</th>
+        <th>Found</th><th>Expected</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for row in r.rows %}
+          <tr>
+            <td>{{ row.course_code }}</td>
+            <td>{{ row.faculty }}</td>
+            <td>{{ row.prog }} / {{ row.year }} / {{ row.section }}</td>
+            <td>{{ row.type }}</td>
+            <td>{{ row.found }}</td>
+            <td>{{ row.expected if row.expected is not none else '—' }}</td>
+            <td>
+              {% if row.severity=='ok' %}<span class="pill ok">OK</span>
+              {% elif row.severity=='dismissed' %}<span class="pill">dismissed</span>
+              {% else %}<span class="pill warn">{{ row.status }}</span>{% endif %}
+              {% if row.warnings %}<span class="muted"> · {{ row.warnings|join(', ') }}</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+{% endblock %}

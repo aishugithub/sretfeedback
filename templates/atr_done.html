@@ -1,0 +1,15 @@
+{# ==========================================================================
+   atr_done.html  —  Simple success confirmation after a faculty submit
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: rendered by atr.atr_file_submit on a successful SUBMIT. No
+   nav; the faculty's journey ends here (the one-time link is now spent).
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block subtitle %}Done{% endblock %}
+{% block nav %}{% endblock %}
+{% block content %}
+  <div class="card">
+    <h2 style="margin-top:0">{{ heading }}</h2>
+    <p>{{ message }}</p>
+  </div>
+{% endblock %}

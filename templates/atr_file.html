@@ -1,0 +1,34 @@
+{# ==========================================================================
+   atr_file.html  —  Faculty ATR filing form (reached via a one-time magic link)
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: served by atr.atr_file_form (GET) and posted to
+   atr.atr_file_submit (POST). No admin nav — faculty are not logged in; they
+   arrive from the tokenised link in their result email. Shows only aggregate
+   context (the course), never any student answer (spec §3.2).
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block subtitle %}Action-Taken-Report{% endblock %}
+{% block nav %}{% endblock %}  {# hide the admin nav for faculty #}
+{% block content %}
+  <div class="card">
+    <h2 style="margin-top:0">File your Action-Taken-Report</h2>
+    <p class="muted">Cycle: {{ cycle.label }}</p>
+    <table style="margin-bottom:16px">
+      <tr><th>Course</th><td>{{ offering.course_code }} — {{ offering.course_name }}</td></tr>
+      <tr><th>Faculty</th><td>{{ offering.faculty or offering.faculty_email }}</td></tr>
+      <tr><th>Department</th><td>{{ offering.dept_code }}</td></tr>
+    </table>
+
+    {# The offering was flagged POOR; the faculty describes the action they will
+       take. A returned ATR pre-fills the previous body so it can be revised. #}
+    <form method="post" action="{{ url_for('atr.atr_file_submit', token=token) }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <div class="field">
+        <label for="body">Describe the action you have taken / will take to
+          address the feedback:</label>
+        <textarea id="body" name="body" rows="10" required>{{ atr.body if atr and atr.body else '' }}</textarea>
+      </div>
+      <button class="btn" type="submit">Submit to HOD</button>
+    </form>
+  </div>
+{% endblock %}

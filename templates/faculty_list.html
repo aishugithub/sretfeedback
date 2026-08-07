@@ -1,0 +1,86 @@
+{# ==========================================================================
+   faculty_list.html  —  Admin "Manage Faculty" screen (v2.0 · Module 5)
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: the roster management page backed by admin/faculty.py. Lists
+   every faculty in the master with search + department filter, and per-row Edit /
+   Remove. "Courses" shows how many current offerings reference that emp_no, so
+   you can see which master records are wired to the live allocation.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Manage Faculty · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <h2 style="margin-top:0">Manage Faculty</h2>
+  <p class="stat">
+    <strong>{{ n_total }}</strong> faculty on file.
+    {% if n_no_email %}<span class="pill warn">{{ n_no_email }} without email</span>{% endif %}
+    {% if n_no_dept %}<span class="pill warn">{{ n_no_dept }} without a home department</span>{% endif %}
+  </p>
+
+  <div style="margin-bottom:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+    <a class="btn" href="{{ url_for('admin.faculty_new') }}">+ Add faculty</a>
+  </div>
+
+  {# ---- search + department filter ---- #}
+  <form class="filters" method="get" action="{{ url_for('admin.faculty_list') }}">
+    <div><label>Search (name / emp-no / email)</label>
+      <input name="q" value="{{ q }}" placeholder="type to search" style="min-width:220px"></div>
+    <div><label>Department</label>
+      <select name="dept">
+        <option value="">All</option>
+        {% for code, name in dept_codes.items() %}
+          <option value="{{ code }}" {{ 'selected' if dept == code else '' }}>{{ code }} — {{ name }}</option>
+        {% endfor %}
+      </select></div>
+    <button class="btn small" type="submit">Filter</button>
+    {% if q or dept %}<a class="btn small grey" href="{{ url_for('admin.faculty_list') }}">Clear</a>{% endif %}
+  </form>
+
+  <table>
+    <thead>
+      <tr><th>Emp No</th><th>Name</th><th>Email</th><th>Phone</th>
+          <th>Home department</th><th>Courses</th><th>Status</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+      {% for f in faculty %}
+        <tr>
+          <td><code>{{ f.emp_no }}</code></td>
+          <td>{{ f.name or '—' }}</td>
+          <td>
+            {% if f.email %}{{ f.email }}
+            {% else %}<span class="pill warn">no email</span>{% endif %}
+          </td>
+          <td class="muted">{{ f.phone or '—' }}</td>
+          <td>
+            {% if f.home_dept_code %}{{ dept_label(f.home_dept_code) }}
+            {% else %}<span class="pill warn">not set</span>{% endif %}
+          </td>
+          <td>{{ counts.get(f.emp_no, 0) }}</td>
+          <td>
+            {% if f.status == 'active' %}<span class="pill ok">active</span>
+            {% else %}<span class="pill warn">inactive</span>{% endif %}
+          </td>
+          <td style="white-space:nowrap">
+            <a class="btn small grey" href="{{ url_for('admin.faculty_edit', emp_no=f.emp_no) }}">Edit</a>
+            <form class="inline" method="post"
+                  action="{{ url_for('admin.faculty_delete', emp_no=f.emp_no) }}"
+                  onsubmit="return confirm('Remove {{ f.name }} ({{ f.emp_no }})? Offerings still using this emp-no will not resolve an email/HOD until reassigned. To just retire them, use Edit → mark inactive instead.');">
+              <button class="btn small danger" type="submit">Remove</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      {% if not faculty %}
+        <tr><td colspan="8" class="muted">No faculty match your filter.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <p class="muted" style="margin-top:14px">
+    “Courses” counts offerings whose faculty emp-no matches this record in the
+    current allocation. A real staff member showing 0 means the allocation still
+    uses an old placeholder id for them — re-upload the allocation with real
+    emp-nos (or use the reconciliation report) to link them.
+  </p>
+
+{% endblock %}

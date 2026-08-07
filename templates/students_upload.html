@@ -1,0 +1,65 @@
+{# ==========================================================================
+   students_upload.html  —  Roster upload with dry-run gate (spec v3 §7.1)
+   Upload = DRY RUN: shows the reconciliation ("N programmes · M year-groups ·
+   K students"), errors and warnings, then an explicit Confirm & commit button.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Upload roster · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <div class="card">
+    <h3 style="margin-top:0">Upload student roster — cycle {{ cycle_code }}</h3>
+    <p class="muted">Ranges template (header row required):</p>
+    <p><code>programme_code | year_of_study | section | reg_no_start | reg_no_end | expected_count</code></p>
+    <p class="muted">One row per contiguous register-number range. Year of study is supplied here, never computed. An optional “Exclusions” sheet lists register numbers already left. Nothing is written until you confirm the reconciliation below.</p>
+    <div style="margin-bottom:10px"><a class="btn small" href="{{ url_for('admin.students_template', cycle=cycle_code) }}">⬇ Download template</a></div>
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('admin.students_upload', cycle=cycle_code) }}">
+      <div class="field"><input type="file" name="file" accept=".xlsx" required></div>
+      <button class="btn" type="submit">Validate (dry run)</button>
+    </form>
+  </div>
+
+  {% if summary %}
+    <div class="card">
+      <h3 style="margin-top:0">Reconciliation — check before committing</h3>
+      <p><strong>{{ summary.range_rows }}</strong> range rows ·
+         <strong>{{ summary.students }}</strong> students would be created
+         {% if summary.exclusions %}· <strong>{{ summary.exclusions }}</strong> exclusions listed{% endif %}.</p>
+
+      {% set r = summary.reconciliation %}
+      {% if r and r.total %}
+        <p><strong>{{ r.programmes }}</strong> programmes ·
+           <strong>{{ r.year_groups }}</strong> year-groups ·
+           <strong>{{ r.total }}</strong> students
+           {% if r.excluded %}({{ r.excluded }} pre-excluded){% endif %}.</p>
+        <p class="muted">By programme:
+          {% for k, v in r.by_programme.items() %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}
+          &nbsp;·&nbsp; By year:
+          {% for k, v in r.by_year.items() %}Y{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}
+        </p>
+      {% endif %}
+
+      {% if summary.errors %}
+        <div class="flash error">
+          <strong>{{ summary.errors|length }} blocking error(s) — nothing will be committed. Fix and re-upload:</strong>
+          <ul>{% for e in summary.errors %}<li>{{ e }}</li>{% endfor %}</ul>
+        </div>
+      {% else %}
+        <div class="flash success">All hard checks passed. Confirm to write {{ summary.students }} students for {{ cycle_code }} (this replaces any existing roster for the cycle).</div>
+        <form method="post" action="{{ url_for('admin.students_upload', cycle=cycle_code) }}">
+          <input type="hidden" name="confirm" value="yes">
+          <input type="hidden" name="staged" value="{{ staged }}">
+          <button class="btn" type="submit">Confirm &amp; commit roster</button>
+        </form>
+      {% endif %}
+
+      {% if summary.warnings %}
+        <div class="flash" style="background:#fbf1d6; color:#7a5a00">
+          <strong>{{ summary.warnings|length }} warning(s):</strong>
+          <ul>{% for w in summary.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+{% endblock %}

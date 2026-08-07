@@ -1,0 +1,29 @@
+{# ==========================================================================
+   categories_list.html  —  Manage categories (spec 6.2)
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Categories · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <div class="stat"><strong>{{ categories|length }}</strong> categories.
+    <a class="btn small" style="float:right" href="{{ url_for('admin.categories_new') }}">+ Add category</a></div>
+
+  <table>
+    <thead><tr><th>Code</th><th>Name</th><th>Form title</th><th>Report key</th><th>Templates</th><th>Offerings</th><th></th></tr></thead>
+    <tbody>
+      {% for c in categories %}
+        <tr>
+          <td>{{ c.code }}</td>
+          <td>{{ c.name }}</td>
+          <td>{{ c.form_title if c.form_title else '' }}</td>
+          <td>{{ c.report_key if c.report_key else '' }}</td>
+          <td>{{ c.n_templates }}</td>
+          <td>{{ c.n_offerings }}</td>
+          <td><a class="btn small" href="{{ url_for('admin.categories_edit', cat_id=c.id) }}">Edit</a></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Add a fifth category (e.g. "Internship") anytime; it starts with an empty template you can fill on the Templates page.</p>
+
+{% endblock %}

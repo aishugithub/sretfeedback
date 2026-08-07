@@ -1,0 +1,64 @@
+{# ==========================================================================
+   cycles_list.html  —  Manage cycles (spec 6.4): create / open / close, edit
+   email text, jump to tokens + participation.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Cycles · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <h2 style="margin-top:0">Feedback cycles
+    {% if ay %}<span class="muted">· {{ ay.ay_label }}</span>{% endif %}</h2>
+
+  <table>
+    <thead><tr><th>Code</th><th>Label</th><th>AY</th><th>State</th><th>Readiness</th><th>Tokens</th><th>Completed</th><th>Responses</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for d in data %}
+        <tr>
+          <td>{{ d.row.code }}{% if d.row.is_test %} <span class="pill warn">TEST</span>{% endif %}</td>
+          <td>{{ d.row.label }}</td>
+          <td>{{ d.row.academic_year }}</td>
+          <td>{% if d.row.is_open %}<span class="pill ok">OPEN</span>{% else %}<span class="pill warn">{{ d.row.status or 'DRAFT' }}</span>{% endif %}</td>
+          <td>
+            {% if d.row.readiness_state=='READY' %}<span class="pill ok">READY</span>
+            {% else %}<a href="{{ url_for('admin.readiness_page', cycle=d.row.code) }}"><span class="pill warn">{{ d.row.readiness_state or 'UNKNOWN' }}</span></a>{% endif %}
+          </td>
+          <td>{{ d.n_tokens }}</td>
+          <td>{{ d.n_done }}</td>
+          <td>{{ d.n_responses }}</td>
+          <td style="white-space:nowrap">
+            <form class="inline" method="post" action="{{ url_for('admin.cycles_toggle', cycle_id=d.row.id) }}">
+              <button class="btn small {{ 'danger' if d.row.is_open else '' }}" type="submit">{{ 'Close' if d.row.is_open else 'Open' }}</button></form>
+            <a class="btn small grey" href="{{ url_for('admin.cycles_email', cycle_id=d.row.id) }}">Email text</a>
+            <a class="btn small" href="{{ url_for('admin.tokens_page', cycle_id=d.row.id) }}">Tokens</a>
+            <a class="btn small" href="{{ url_for('admin.participation', cycle_id=d.row.id) }}">Participation</a>
+            <a class="btn small" href="{{ url_for('admin.reports_home', cycle_id=d.row.id) }}">Reports</a>
+            <a class="btn small" href="{{ url_for('admin.distribute_page', cycle_id=d.row.id) }}">Results &amp; send</a>
+            {# Archive & reset (spec 6.9/13): closes for good, moves ONLY this
+               cycle's data file to app/archive/, and starts a fresh empty cycle.
+               Requires typing the cycle code to confirm — guards against a stray
+               click destroying live data. #}
+            <form class="inline" method="post"
+                  action="{{ url_for('admin.cycles_archive', cycle_id=d.row.id) }}"
+                  onsubmit="return confirm('Archive {{ d.row.code }} and start a fresh cycle? The Student Master and configuration are NOT touched.');">
+              <input name="confirm_code" placeholder="type {{ d.row.code }}" style="width:90px; padding:4px; font-size:12px">
+              <button class="btn small danger" type="submit">Archive &amp; reset</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin-top:0">Create a new cycle</h3>
+    <form method="post" action="{{ url_for('admin.cycles_new') }}"
+          style="display:flex; gap:10px; align-items:end; flex-wrap:wrap">
+      <div class="field" style="margin:0"><label>Code</label><input name="code" placeholder="CA1 / CA3" style="width:110px"></div>
+      <div class="field" style="margin:0; flex:1"><label>Label</label><input name="label" placeholder="CA1 - Intermediate" style="width:100%; min-width:220px"></div>
+      <div class="field" style="margin:0"><label>Test cycle?</label>
+        <label class="muted"><input type="checkbox" name="is_test"> redirect all mail (§9)</label></div>
+      <button class="btn" type="submit">Create (DRAFT)</button>
+    </form>
+  </div>
+
+{% endblock %}

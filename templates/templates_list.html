@@ -1,0 +1,33 @@
+{# ==========================================================================
+   templates_list.html  —  All questionnaires with their lock state (spec 6.3)
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Templates · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <div class="stat"><strong>{{ templates|length }}</strong> templates (one per category).</div>
+
+  <table>
+    <thead><tr><th>Category</th><th>Template</th><th>Version</th><th>Questions</th><th>State</th><th></th></tr></thead>
+    <tbody>
+      {% for t in templates %}
+        <tr>
+          <td>{{ t.row.category_name }}</td>
+          <td>{{ t.row.name }}</td>
+          <td>{{ ('v' ~ t.version.version_no) if t.version else '—' }}</td>
+          <td>{{ t.n_questions }}</td>
+          <td>
+            {% if t.version and t.version.is_locked %}
+              <span class="pill warn">LOCKED (responses started)</span>
+            {% else %}
+              <span class="pill ok">editable</span>
+            {% endif %}
+          </td>
+          <td><a class="btn small" href="{{ url_for('admin.template_detail', template_id=t.row.id) }}">Open</a></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Editing is free before responses arrive. Once a form goes live it locks; make an editable copy (new version) to change it — old responses stay tied to their version.</p>
+
+{% endblock %}

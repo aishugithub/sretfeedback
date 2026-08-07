@@ -1,0 +1,97 @@
+{# ==========================================================================
+   user_edit.html  —  Create / edit one leader account (Version 2.0 · §17 IAM)
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: the add/edit form behind the Users & Roles screen
+   (admin/users.py -> user_new / user_edit). One template serves BOTH modes:
+     * `user is None`  -> "Add leader"   (POST to admin.user_new)
+     * `user` present  -> "Edit leader"  (POST to admin.user_edit)
+
+   The scope control is a multi-select of department codes plus a "Whole college"
+   option; the server (admin.users._compute_scope) turns the selection into the
+   exact string rbac.py wants — a single E-code for an HOD, a CSV or 'ALL' for a
+   Vice Dean, and always 'ALL' for the Dean.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if user and user.id else 'Add' }} leader · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  {# Editing an existing row posts to user_edit; a brand-new one posts to user_new. #}
+  {% set is_edit = user and user.id %}
+  <h2 style="margin-top:0">{{ 'Edit leader' if is_edit else 'Add leader' }}</h2>
+
+  <div class="card">
+    <form method="post"
+          action="{{ url_for('admin.user_edit', user_id=user.id) if is_edit else url_for('admin.user_new') }}">
+
+      <div class="field">
+        <label>Full name</label>
+        <input name="name" value="{{ user.name if user else '' }}"
+               placeholder="e.g. Dr. A. Kumar">
+      </div>
+
+      <div class="field">
+        <label>Email (this is the login username)</label>
+        <input name="email" type="email" value="{{ user.email if user else '' }}"
+               placeholder="hod.e01@sriher.edu.in" required>
+      </div>
+
+      <div class="field">
+        <label>Role</label>
+        <select name="role">
+          {% for r in roles %}
+            <option value="{{ r }}" {{ 'selected' if user and user.role == r else '' }}>
+              {{ role_label.get(r, r) }}
+            </option>
+          {% endfor %}
+        </select>
+        <div class="muted" style="margin-top:4px">
+          Dean = whole college · Vice Dean = whole college or a chosen set of
+          departments · HOD = exactly one department.
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Scope — which departments this leader can see</label>
+        <select name="scope" multiple size="7" style="max-width:420px">
+          {# 'ALL' sentinel for Dean / college-wide Vice Dean. #}
+          <option value="ALL"
+            {{ 'selected' if user and user.scope_dept_ids == 'ALL'
+               or ('ALL' in selected_codes) else '' }}>
+            ALL — whole college
+          </option>
+          {% for code, name in dept_codes.items() %}
+            <option value="{{ code }}" {{ 'selected' if code in selected_codes else '' }}>
+              {{ code }} — {{ name }}
+            </option>
+          {% endfor %}
+        </select>
+        <div class="muted" style="margin-top:4px">
+          Hold Ctrl/Cmd to pick more than one. For an HOD choose a single
+          department. For the Dean the selection is ignored (always whole college).
+        </div>
+      </div>
+
+      {% if is_edit %}
+        <div class="field">
+          <label>
+            <input type="checkbox" name="disabled"
+                   {{ 'checked' if user and user.status == 'disabled' else '' }}>
+            Account disabled (cannot log in; history is preserved)
+          </label>
+        </div>
+      {% endif %}
+
+      <button class="btn" type="submit">{{ 'Save changes' if is_edit else 'Create leader' }}</button>
+      <a class="btn grey" href="{{ url_for('admin.users_list') }}">Cancel</a>
+    </form>
+  </div>
+
+  {% if is_edit %}
+    <p class="muted">
+      Creating or editing the account does not set a password. Use
+      “Send invite” on the Users &amp; Roles list to email this leader their
+      one-time set-password link.
+    </p>
+  {% endif %}
+
+{% endblock %}

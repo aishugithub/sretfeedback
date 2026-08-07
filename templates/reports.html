@@ -1,0 +1,97 @@
+{# ==========================================================================
+   reports.html  —  Generate + download feedback reports (spec 6.8 / 11)
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: the admin front door to the Night-3 scoring + export stack.
+   The professor picks a cycle, sees which offerings have collected responses,
+   and downloads either ONE offering (Excel / PDF) or a whole BATCH (a .zip of
+   Excel files, or one combined PDF). Every number shown/exported is computed by
+   scoring.py, which is verified to reproduce the approved workbooks exactly.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Reports · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <h2 style="margin-top:0">Feedback reports</h2>
+
+  {# ---- Cycle picker ---------------------------------------------------- #}
+  <form method="get" action="{{ url_for('admin.reports_home') }}" class="filters">
+    <div>
+      <label>Cycle</label>
+      <select name="cycle_id" onchange="this.form.submit()">
+        {% for c in cycles %}
+          <option value="{{ c.id }}" {{ 'selected' if selected and c.id == selected.id }}>
+            {{ c.code }} — {{ c.label }} ({{ c.academic_year }})
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <noscript><button class="btn" type="submit">Show</button></noscript>
+  </form>
+
+  {% if not selected %}
+    <p class="muted">No cycles exist yet. Create one on the Cycles page.</p>
+  {% elif items|length == 0 %}
+    <p class="muted">No responses collected yet for <b>{{ selected.code }}</b>.
+       Reports appear here once students start submitting.</p>
+  {% else %}
+
+    {# ---- Bulk (per-batch) generation ---------------------------------- #}
+    <div class="card">
+      <h3 style="margin-top:0">Bulk generate for a batch</h3>
+      <p class="muted">Optionally narrow to a programme / department / year, then
+        download every matching offering's report in one file.</p>
+      <form method="get" id="bulkform"
+            action="{{ url_for('admin.report_bulk', cycle_id=selected.id, fmt='zip') }}"
+            style="display:flex; gap:10px; align-items:end; flex-wrap:wrap">
+        <div class="field" style="margin:0"><label>Programme</label>
+          <select name="programme"><option value="">(all)</option>
+            {% for p in programmes %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+          </select></div>
+        <div class="field" style="margin:0"><label>Department</label>
+          <select name="dept"><option value="">(all)</option>
+            {% for d in depts %}<option value="{{ d }}">{{ d }} — {{ dept_names.get(d, '') }}</option>{% endfor %}
+          </select></div>
+        <div class="field" style="margin:0"><label>Year</label>
+          <select name="year"><option value="">(all)</option>
+            {% for y in years %}<option value="{{ y }}">Year {{ y }}</option>{% endfor %}
+          </select></div>
+        <button class="btn" type="submit"
+                formaction="{{ url_for('admin.report_bulk', cycle_id=selected.id, fmt='zip') }}">
+          Download Excel (.zip)</button>
+        <button class="btn grey" type="submit"
+                formaction="{{ url_for('admin.report_bulk', cycle_id=selected.id, fmt='pdf') }}">
+          Download combined PDF</button>
+      </form>
+    </div>
+
+    {# ---- Per-offering list -------------------------------------------- #}
+    <div class="stat">{{ items|length }} offering(s) with responses in
+      <b>{{ selected.code }}</b>.</div>
+    <table>
+      <thead><tr><th>Dept</th><th>Yr</th><th>Course</th><th>Faculty</th>
+        <th>Category</th><th>Responses</th><th>Download</th></tr></thead>
+      <tbody>
+        {% for it in items %}
+          {% set o = it.offering %}
+          <tr>
+            <td>{{ o.dept_code }}</td>
+            <td>{{ o.year_of_study }}</td>
+            <td><b>{{ o.course_code }}</b><br><span class="muted">{{ o.course_name }}</span></td>
+            <td>{{ o.faculty or '—' }}</td>
+            <td>{% if o.category_name %}{{ o.category_name }}{% else %}<span class="pill warn">uncategorised</span>{% endif %}</td>
+            <td>{{ it.n_responses }}</td>
+            <td style="white-space:nowrap">
+              {% if o.report_key %}
+                <a class="btn small" href="{{ url_for('admin.report_one', cycle_id=selected.id, offering_id=o.id, fmt='xlsx') }}">Excel</a>
+                <a class="btn small grey" href="{{ url_for('admin.report_one', cycle_id=selected.id, offering_id=o.id, fmt='pdf') }}">PDF</a>
+              {% else %}
+                <span class="muted">set a category first</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+{% endblock %}

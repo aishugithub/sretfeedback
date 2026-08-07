@@ -1,0 +1,19 @@
+{# ==========================================================================
+   student_done.html  —  Thank-you page after all courses are done (spec 8.5)
+   Shown whenever a completed token's link is opened; the link no longer accepts
+   submissions.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block subtitle %}Course Feedback{% endblock %}
+{% block nav %}{% endblock %}
+{% block title %}Thank you · SRET{% endblock %}
+{% block content %}
+
+  <div class="card" style="text-align:center; max-width:560px; margin:40px auto">
+    <div style="font-size:44px">✅</div>
+    <h2>Thank you!</h2>
+    <p>You've completed feedback for all your courses in <strong>{{ cycle.label }}</strong>.</p>
+    <p class="muted">Your responses were recorded anonymously. There's nothing more to do — you can close this page.</p>
+  </div>
+
+{% endblock %}

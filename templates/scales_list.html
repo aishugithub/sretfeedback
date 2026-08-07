@@ -1,0 +1,43 @@
+{# ==========================================================================
+   scales_list.html  —  Answer scales + option weights (spec 10, Open Item 14.2)
+   Lets the professor inspect and adjust weights — e.g. finally set the weight of
+   "Discussed Late", which currently ships as NULL by design.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Scales · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <h2 style="margin-top:0">Answer scales &amp; weights</h2>
+  <p class="muted">Answers store the option <em>label</em>, not the weight, so changing a weight here re-scores cleanly with no data migration. Blank weight = NULL (the deliberate state for unresolved items).</p>
+
+  {% for d in data %}
+    <div class="card">
+      <h3 style="margin-top:0">{{ d.scale.code }} <span class="muted">— {{ d.scale.name }}</span></h3>
+      {% if d.scale.is_free_text %}
+        <p class="muted">Free-text scale — no options / weights.</p>
+      {% else %}
+        <table>
+          <thead><tr><th>#</th><th>Option label</th><th>Weight</th><th>Fraction</th><th></th></tr></thead>
+          <tbody>
+            {% for o in d.options %}
+              <tr>
+                <td>{{ o.display_order }}</td>
+                <td>{{ o.label }}</td>
+                <td colspan="3">
+                  <form method="post" action="{{ url_for('admin.scale_option_weight', option_id=o.id) }}"
+                        style="display:flex; gap:8px; align-items:center">
+                    <input name="weight" value="{{ o.weight if o.weight is not none else '' }}" placeholder="weight" style="width:90px">
+                    <input name="fraction" value="{{ o.fraction if o.fraction is not none else '' }}" placeholder="fraction" style="width:90px">
+                    <button class="btn small" type="submit">Save</button>
+                    {% if o.weight is none and o.fraction is none %}<span class="pill warn">unset</span>{% endif %}
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    </div>
+  {% endfor %}
+
+{% endblock %}

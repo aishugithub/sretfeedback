@@ -1,0 +1,29 @@
+{# ==========================================================================
+   cycle_email.html  —  Edit the per-cycle email text (spec 6.5 & 12)
+   Plain-text body with {student_name} {cycle_name} {link} placeholders; a live
+   sample preview shows exactly what a student receives.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Email text · {{ cycle.label }}{% endblock %}
+{% block content %}
+
+  <h2 style="margin-top:0">Email text — {{ cycle.label }}</h2>
+
+  <div class="card">
+    <form method="post" action="{{ url_for('admin.cycles_email', cycle_id=cycle.id) }}">
+      <div class="field">
+        <label>Email body (placeholders: <code>{student_name}</code>, <code>{cycle_name}</code>, <code>{link}</code>)</label>
+        <textarea name="email_body" rows="10">{{ cycle.email_body }}</textarea>
+      </div>
+      <button class="btn" type="submit">Save</button>
+      <a class="btn grey" href="{{ url_for('admin.cycles_list') }}">Back</a>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Preview (sample student)</h3>
+    <pre style="white-space:pre-wrap; font-family:inherit; background:#f7f8fa; padding:12px; border-radius:6px">{{ preview }}</pre>
+    <p class="muted">What you see in the editor is exactly what is sent. The real link carries the laptop's LAN address automatically.</p>
+  </div>
+
+{% endblock %}
