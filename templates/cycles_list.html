@@ -14,10 +14,17 @@
     <tbody>
       {% for d in data %}
         <tr>
-          <td>{{ d.row.code }}{% if d.row.is_test %} <span class="pill warn">TEST</span>{% endif %}</td>
+          {# Test LEVEL badge (§9): PROD (green) at level 0, else a warn pill 'TEST L#'.
+             Fall back to is_test for any row that predates the test_level column. #}
+          {% set lvl = d.row.test_level if d.row.test_level is not none else (1 if d.row.is_test else 0) %}
+          <td>{{ d.row.code }}
+            {% if lvl == 0 %}<span class="pill ok">PROD</span>
+            {% else %}<span class="pill warn">TEST L{{ lvl }}</span>{% endif %}</td>
           <td>{{ d.row.label }}</td>
           <td>{{ d.row.academic_year }}</td>
-          <td>{% if d.row.is_open %}<span class="pill ok">OPEN</span>{% else %}<span class="pill warn">{{ d.row.status or 'DRAFT' }}</span>{% endif %}</td>
+          <td>{% if d.row.is_open %}<span class="pill ok">OPEN</span>
+            {% elif d.row.status=='RECORDED' %}<span class="pill ok">RECORDED</span>
+            {% else %}<span class="pill warn">{{ d.row.status or 'DRAFT' }}</span>{% endif %}</td>
           <td>
             {% if d.row.readiness_state=='READY' %}<span class="pill ok">READY</span>
             {% else %}<a href="{{ url_for('admin.readiness_page', cycle=d.row.code) }}"><span class="pill warn">{{ d.row.readiness_state or 'UNKNOWN' }}</span></a>{% endif %}
@@ -28,11 +35,45 @@
           <td style="white-space:nowrap">
             <form class="inline" method="post" action="{{ url_for('admin.cycles_toggle', cycle_id=d.row.id) }}">
               <button class="btn small {{ 'danger' if d.row.is_open else '' }}" type="submit">{{ 'Close' if d.row.is_open else 'Open' }}</button></form>
+            {# Walk the cycle UP the testing ladder (L1→L2→L3). Production (level 0)
+               is NOT offered here — it is reached only via Purge & promote. Hidden
+               once the cycle is already in production. #}
+            {% if lvl != 0 %}
+            <form class="inline" method="post" action="{{ url_for('admin.cycles_set_test_level', cycle_id=d.row.id) }}">
+              <select name="test_level" style="padding:4px; font-size:12px">
+                <option value="1" {{ 'selected' if lvl==1 else '' }}>L1 · all redirected</option>
+                <option value="2" {{ 'selected' if lvl==2 else '' }}>L2 · real staff</option>
+                <option value="3" {{ 'selected' if lvl==3 else '' }}>L3 · all real</option>
+              </select>
+              <button class="btn small grey" type="submit">Set level</button></form>
+            {% endif %}
             <a class="btn small grey" href="{{ url_for('admin.cycles_email', cycle_id=d.row.id) }}">Email text</a>
             <a class="btn small" href="{{ url_for('admin.tokens_page', cycle_id=d.row.id) }}">Tokens</a>
             <a class="btn small" href="{{ url_for('admin.participation', cycle_id=d.row.id) }}">Participation</a>
             <a class="btn small" href="{{ url_for('admin.reports_home', cycle_id=d.row.id) }}">Reports</a>
             <a class="btn small" href="{{ url_for('admin.distribute_page', cycle_id=d.row.id) }}">Results &amp; send</a>
+            {# Signed audit report — the consolidated, digitally-sealed cycle record.
+               Highlighted once the cycle is RECORDED (Dean endorsed every ATR). #}
+            <a class="btn small {{ '' if d.row.status=='RECORDED' else 'grey' }}"
+               href="{{ url_for('admin.cycles_audit_report', cycle_id=d.row.id) }}">Audit report</a>
+            {# Download the UNSIGNED content to sign + timestamp on the laptop (keeps
+               the signing key off the server; laptop's open network reaches the TSA). #}
+            <a class="btn small grey"
+               href="{{ url_for('admin.cycles_audit_report', cycle_id=d.row.id, mode='unsigned') }}"
+               title="Download the unsigned report to sign on your laptop with sign_audit.py">Sign on laptop</a>
+            {# Purge & promote to production (v2.1): wipes ONLY this cycle's test
+               feedback/ATRs/bands and flips it to a clean Level-0 production run,
+               keeping faculty/offerings/roster. Shown only while still a test level.
+               Requires typing 'PURGE <code>' to confirm. #}
+            {% if lvl != 0 %}
+            <form class="inline" method="post"
+                  action="{{ url_for('admin.cycles_purge_to_production', cycle_id=d.row.id) }}"
+                  onsubmit="return confirm('PURGE all test feedback for {{ d.row.code }} and promote to PRODUCTION? Faculty, offerings and the student roster are KEPT; test feedback, ATRs and bands are wiped. A backup is saved to the archive.');">
+              <input name="confirm_phrase" placeholder="type PURGE {{ d.row.code }}"
+                     style="width:135px; padding:4px; font-size:12px">
+              <button class="btn small danger" type="submit">Purge &rarr; Production</button>
+            </form>
+            {% endif %}
             {# Archive & reset (spec 6.9/13): closes for good, moves ONLY this
                cycle's data file to app/archive/, and starts a fresh empty cycle.
                Requires typing the cycle code to confirm — guards against a stray
@@ -55,8 +96,12 @@
           style="display:flex; gap:10px; align-items:end; flex-wrap:wrap">
       <div class="field" style="margin:0"><label>Code</label><input name="code" placeholder="CA1 / CA3" style="width:110px"></div>
       <div class="field" style="margin:0; flex:1"><label>Label</label><input name="label" placeholder="CA1 - Intermediate" style="width:100%; min-width:220px"></div>
-      <div class="field" style="margin:0"><label>Test cycle?</label>
-        <label class="muted"><input type="checkbox" name="is_test"> redirect all mail (§9)</label></div>
+      <div class="field" style="margin:0"><label>Test level</label>
+        <select name="test_level" title="A new cycle starts at Level 1 (safest). Walk it up as each level passes; Production is reached only by Purge &amp; promote.">
+          <option value="1" selected>Level 1 · all redirected (safest)</option>
+          <option value="2">Level 2 · real staff, students redirected</option>
+          <option value="3">Level 3 · all real, watermarked</option>
+        </select></div>
       <button class="btn" type="submit">Create (DRAFT)</button>
     </form>
   </div>

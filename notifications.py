@@ -304,9 +304,13 @@ def notify_state_change(master, cycle, cycle_row, atr_row, action, new_state,
         # rather than send nothing silently.
         return {"count": 0, "errors": [], "recipients": [], "mode": "none"}
 
+    # Route by the cycle's test LEVEL. Every recipient here is staff (a leader or a
+    # faculty member — never a student), and staff route identically: redirected to
+    # the staff test inbox at Level 1, REAL at Levels 2/3 and Production. So one
+    # audience label ('leader') routes the whole batch correctly.
     summary = emailer.send_batch(
         Config.BASE_DIR, subject, messages,
-        is_test=bool(cycle_row["is_test"]))
+        test_level=emailer.test_level_of(cycle_row), audience="leader")
     summary["recipients"] = labelled
     return summary
 
@@ -347,6 +351,6 @@ def send_reminder_email(master, cycle_row, offering_row, jti, base_url=None):
     summary = emailer.send_batch(
         Config.BASE_DIR, subject,
         [{"to": to, "body": body}],
-        is_test=bool(cycle_row["is_test"]))
+        test_level=emailer.test_level_of(cycle_row), audience="faculty")
     summary["recipients"] = [(to, atr_workflow.ROLE_FACULTY)]
     return summary

@@ -108,9 +108,9 @@ def _ensure_department_columns(conn):
 # ----------------------------------------------------------------------------
 def _ensure_cycle_thresholds(conn):
     print("[2] cycle  — per-cycle classification thresholds (§6)")
-    _add_column_if_missing(conn, "cycle", "threshold_overall", "REAL NOT NULL DEFAULT 8.0")
+    _add_column_if_missing(conn, "cycle", "threshold_overall", "REAL NOT NULL DEFAULT 7.5")
     _add_column_if_missing(conn, "cycle", "threshold_section", "REAL")           # nullable = off
-    _add_column_if_missing(conn, "cycle", "min_responses", "INTEGER NOT NULL DEFAULT 10")
+    _add_column_if_missing(conn, "cycle", "min_responses", "INTEGER NOT NULL DEFAULT 0")
 
 
 # ----------------------------------------------------------------------------

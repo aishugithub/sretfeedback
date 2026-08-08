@@ -81,9 +81,17 @@
     <a href="{{ url_for('admin.categories_list') }}">Categories</a>
     <a href="{{ url_for('admin.templates_list') }}">Templates</a>
     <a href="{{ url_for('admin.cycles_list') }}">Cycles</a>
+    <a href="{{ url_for('admin.status_page') }}">Status</a>
     <a href="{{ url_for('admin.reports_home') }}">Reports</a>
     <a href="{{ url_for('admin.users_list') }}">Users &amp; Roles</a>
     <a href="{{ url_for('admin.activity_log_view') }}">Activity</a>
+    {# Right-aligned admin identity + logout, shown only when an admin is logged in
+       (session.admin_email is set by admin/auth.py). Accountability at a glance. #}
+    {% if session.get('admin_email') %}
+      <span style="margin-left:auto"></span>
+      <a href="{{ url_for('admin.admin_logout') }}" title="Logged in as {{ session.get('admin_email') }}">
+        {{ session.get('admin_email') }} · Logout</a>
+    {% endif %}
   </nav>
   {% endblock %}
   <div class="wrap">

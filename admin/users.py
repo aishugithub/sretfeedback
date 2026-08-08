@@ -153,9 +153,15 @@ def _login_link_from(set_pw_link):
 # what matters for the trail. Does NOT commit — the caller owns the transaction.
 # ----------------------------------------------------------------------------
 def _admin_log(master, action, target_user_id=None):
+    # v2.1: the console is now login-gated, so we can attribute each IAM action to
+    # the SPECIFIC admin who performed it (session['admin_id']) instead of NULL —
+    # this is what makes the two operators individually accountable. Falls back to
+    # NULL for a system/CLI context where there is no session.
+    from flask import session
+    admin_user_id = session.get("admin_id")
     master.execute(
         "INSERT INTO admin_log (admin_user_id, action, target_user_id) "
-        "VALUES (NULL, ?, ?)", (action, target_user_id))
+        "VALUES (?, ?, ?)", (admin_user_id, action, target_user_id))
 
 
 # ----------------------------------------------------------------------------

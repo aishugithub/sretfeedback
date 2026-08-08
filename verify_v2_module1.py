@@ -222,13 +222,15 @@ def test_migration():
     for t in ("app_user", "set_pw_token", "admin_log", "offering_classification"):
         check("table %s exists" % t, _table_exists(conn, t))
 
-    # Defaults applied to existing cycle rows (8.0 / 10, section NULL).
+    # Defaults applied to existing cycle rows. v2.1 changed the INSTITUTION default
+    # to POOR < 7.5 and min_responses 0 (see migrate_defaults_7_5_0.py); the first
+    # cycle row (CA1) was migrated to that pair, section rule still off (NULL).
     row = conn.execute(
         "SELECT threshold_overall, threshold_section, min_responses "
         "FROM cycle LIMIT 1").fetchone()
-    check("existing cycle rows got defaults (8.0 / NULL / 10)",
-          row["threshold_overall"] == 8.0 and row["threshold_section"] is None
-          and row["min_responses"] == 10,
+    check("existing cycle rows carry the v2.1 default (7.5 / NULL / 0)",
+          row["threshold_overall"] == 7.5 and row["threshold_section"] is None
+          and row["min_responses"] == 0,
           "overall=%s section=%s min=%s" % (row["threshold_overall"],
                                             row["threshold_section"],
                                             row["min_responses"]))

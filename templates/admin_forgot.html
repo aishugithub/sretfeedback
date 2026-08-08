@@ -1,0 +1,28 @@
+{# ==========================================================================
+   admin_forgot.html  —  v2.1 : admin self-service password reset
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: served by admin.admin_forgot. An admin who has forgotten their
+   password types their email here; if it matches an active admin account a one-
+   time reset link is emailed (the SAME link the leaders use). The confirmation is
+   deliberately neutral so this page cannot reveal which addresses are admins.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block subtitle %}Reset admin password{% endblock %}
+{% block nav %}{% endblock %}
+{% block content %}
+  <div class="card" style="max-width:440px">
+    <h2 style="margin-top:0">Forgot your admin password?</h2>
+    <p class="muted">Enter your admin email. If it is a registered admin account,
+      we will email you a secure one-time link to set a new password.</p>
+    <form method="post" action="{{ url_for('admin.admin_forgot') }}">
+      <div class="field">
+        <label for="email">Admin email</label>
+        <input id="email" name="email" type="email" required
+               placeholder="you@sret.edu.in" autofocus>
+      </div>
+      <button class="btn" type="submit">Send reset link</button>
+      <a class="btn grey small" href="{{ url_for('admin.admin_login') }}"
+         style="margin-left:8px">Back to login</a>
+    </form>
+  </div>
+{% endblock %}

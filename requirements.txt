@@ -22,6 +22,12 @@ reportlab==4.5.1      # Pure-Python PDF generation (no system libraries needed,
                       # PDF version of each "Feedback Report V2.0", including the
                       # per-section bar charts drawn with reportlab.graphics.
 
+pyhanko              # (v2.1) Digitally signs the end-of-cycle audit PDF
+                      # (audit_report.py + signing.py). Pure-Python + `cryptography`
+                      # wheels, so it installs on the PythonAnywhere free tier.
+                      # Pulls in `cryptography`, used to mint the self-signed
+                      # institutional signing certificate on first use.
+
 # NOTE: SQLite needs NO package — Python ships with the built-in `sqlite3`
 # module. That is the entire database layer (spec Section 5), run in WAL mode.
 #

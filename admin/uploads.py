@@ -33,7 +33,9 @@ _TMP_DIR = os.path.join(Config.BASE_DIR, "uploads_tmp")
 
 
 def _default_cycle_code(conn):
-    row = conn.execute("SELECT code FROM cycle ORDER BY id LIMIT 1").fetchone()
+    row = conn.execute(
+        "SELECT code FROM cycle WHERE status != 'ARCHIVED' "
+        "ORDER BY id LIMIT 1").fetchone()
     return row["code"] if row else "CA1"
 
 
@@ -98,7 +100,10 @@ def allocation_upload():
         return render_template("allocation_upload.html", summary=summary,
                                cycle_code=cycle_code, staged=staged_name)
 
-    cycles = conn.execute("SELECT code, label FROM cycle ORDER BY id").fetchall()
+    # Archived cycles are excluded from the upload/readiness pickers.
+    cycles = conn.execute(
+        "SELECT code, label FROM cycle WHERE status != 'ARCHIVED' "
+        "ORDER BY id").fetchall()
     n_offerings = conn.execute(
         "SELECT COUNT(*) n FROM offering WHERE cycle_code=?", (cycle_code,)).fetchone()["n"]
     conn.close()
@@ -156,7 +161,10 @@ def enrollment_upload():
                                selected=offering_id, staged=staged_name)
 
     electives = _elective_offerings(conn, cycle_code)
-    cycles = conn.execute("SELECT code, label FROM cycle ORDER BY id").fetchall()
+    # Archived cycles are excluded from the upload/readiness pickers.
+    cycles = conn.execute(
+        "SELECT code, label FROM cycle WHERE status != 'ARCHIVED' "
+        "ORDER BY id").fetchall()
     conn.close()
     return render_template("enrollment_upload.html", summary=None,
                            cycle_code=cycle_code, cycles=cycles,
@@ -181,7 +189,10 @@ def readiness_page():
     cycle_code = request.args.get("cycle", "").strip() or _default_cycle_code(conn)
     result = readiness.compute(conn, cycle_code)
     readiness.persist_state(conn, cycle_code, result["state"])
-    cycles = conn.execute("SELECT code, label FROM cycle ORDER BY id").fetchall()
+    # Archived cycles are excluded from the upload/readiness pickers.
+    cycles = conn.execute(
+        "SELECT code, label FROM cycle WHERE status != 'ARCHIVED' "
+        "ORDER BY id").fetchall()
     conn.close()
     return render_template("readiness.html", r=result, cycle_code=cycle_code,
                            cycles=cycles)

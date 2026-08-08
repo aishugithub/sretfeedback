@@ -28,6 +28,26 @@
     </form>
   </div>
 
+  {# COMPLETE & RECORDED banner: shown once the Dean has closed every ATR. #}
+  {% if selected and selected.status == 'RECORDED' %}
+    <div class="flash success">This cycle is <b>COMPLETE &amp; RECORDED</b> — every
+      ATR has been endorsed and closed. The admin can now generate the signed
+      audit report and archive the cycle.</div>
+  {% endif %}
+
+  {# ENDORSE ALL: only for whole-slate endorsers (Vice-Dean / Dean) and only when
+     something is actually waiting on them. Endorses every ATR in their queue in
+     one action — each still goes through the audited state machine. #}
+  {% if can_endorse_all and my_count > 0 %}
+    <form method="post"
+          action="{{ url_for('atr.atr_endorse_all', cycle_code=selected.code) }}"
+          onsubmit="return confirm('Endorse ALL {{ my_count }} ATR(s) awaiting you? Each is recorded in the audit trail.');"
+          style="margin-bottom:14px">
+      <button class="btn" type="submit">Endorse all ({{ my_count }})</button>
+      <span class="muted">Endorses every ATR currently awaiting your action, in one step.</span>
+    </form>
+  {% endif %}
+
   {% if not rows %}
     <p class="stat">No ATRs in your scope for this cycle yet.</p>
   {% else %}

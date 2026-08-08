@@ -1,0 +1,111 @@
+{# ==========================================================================
+   status.html  —  v2.1 : cycle STATUS / tracking board
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: served by admin.status_page. Shows student participation at a
+   glance plus an ATR tracking table (who filed, who hasn't, which HOD/VD/Dean has
+   not acted), with department / state / "waiting on" / search filters.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block title %}Status · SRET Feedback Admin{% endblock %}
+{% block content %}
+
+  <h2 style="margin-top:0">Cycle status
+    <span class="muted">· {{ cycle.label }}
+      {% if cycle.status=='RECORDED' %}<span class="pill ok">RECORDED</span>{% endif %}</span></h2>
+
+  {# Cycle picker (archived cycles are excluded). #}
+  <div class="filters">
+    <form method="get" action="{{ url_for('admin.status_page') }}">
+      <label>Cycle
+        <select name="cycle" onchange="this.form.submit()">
+          {% for c in cycles %}
+            <option value="{{ c.code }}" {{ 'selected' if c.code==cycle.code }}>{{ c.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+  </div>
+
+  {# ---- Participation summary tiles ---- #}
+  <div class="cards">
+    <div class="metric"><div class="n">{{ part.tokens }}</div><div class="l">Students invited</div></div>
+    <div class="metric"><div class="n">{{ part.completed }}</div><div class="l">Completed all</div></div>
+    <div class="metric"><div class="n">{{ part.pending }}</div><div class="l">Still pending</div></div>
+    <div class="metric"><div class="n">{{ tally.total }}</div><div class="l">ATRs expected (POOR)</div></div>
+    <div class="metric"><div class="n">{{ tally.not_submitted }}</div><div class="l">ATR not submitted</div></div>
+    <div class="metric"><div class="n">{{ tally.hod }}</div><div class="l">HOD not acted</div></div>
+    <div class="metric"><div class="n">{{ tally.vd }}</div><div class="l">Vice-Dean not acted</div></div>
+    <div class="metric"><div class="n">{{ tally.dean }}</div><div class="l">Dean not acted</div></div>
+    <div class="metric"><div class="n">{{ tally.done }}</div><div class="l">ATR closed</div></div>
+  </div>
+
+  {# ---- Filters over the ATR tracking table ---- #}
+  <form method="get" action="{{ url_for('admin.status_page') }}" class="filters">
+    <input type="hidden" name="cycle" value="{{ cycle.code }}">
+    <label>Department
+      <select name="dept">
+        <option value="">All</option>
+        {% for d in depts %}<option value="{{ d }}" {{ 'selected' if d==f_dept }}>{{ d }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Waiting on
+      <select name="waiting">
+        <option value="">Anyone</option>
+        <option value="faculty" {{ 'selected' if f_wait=='faculty' }}>Faculty — not submitted</option>
+        <option value="hod" {{ 'selected' if f_wait=='hod' }}>HOD — not acted</option>
+        <option value="vd" {{ 'selected' if f_wait=='vd' }}>Vice-Dean — not acted</option>
+        <option value="dean" {{ 'selected' if f_wait=='dean' }}>Dean — not acted</option>
+        <option value="done" {{ 'selected' if f_wait=='done' }}>Closed</option>
+      </select>
+    </label>
+    <label>State
+      <select name="state">
+        <option value="">All</option>
+        {% for s in states %}<option value="{{ s }}" {{ 'selected' if s==f_state }}>{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Search faculty / course
+      <input name="q" value="{{ f_q }}" placeholder="name, email or course">
+    </label>
+    <button class="btn small" type="submit">Filter</button>
+    <a class="btn small grey" href="{{ url_for('admin.status_page', cycle=cycle.code) }}">Clear</a>
+  </form>
+
+  {% if not part.has_db %}
+    <p class="stat">No tokens or responses for this cycle yet.</p>
+  {% endif %}
+
+  {# ---- ATR tracking table ---- #}
+  {% if rows %}
+  <table>
+    <thead><tr>
+      <th>Dept</th><th>Course</th><th>Faculty</th><th>Score /10</th>
+      <th>ATR state</th><th>Waiting on</th><th>Endorsing HOD</th><th>Filed</th>
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>{{ r.eff_dept }}</td>
+          <td>{{ r.offering.course_code }}<br><span class="muted">{{ r.offering.course_name }}</span></td>
+          <td>{{ r.offering.faculty or r.offering.faculty_email or r.offering.faculty_id or '—' }}</td>
+          <td>{{ '%.2f'|format(r.offering.overall_score) if r.offering.overall_score is not none else '—' }}
+              <span class="muted">(n={{ r.offering.n_responses if r.offering.n_responses is not none else 0 }})</span></td>
+          <td><span class="pill {{ 'ok' if r.state=='CLOSED' else 'warn' }}">{{ r.state }}</span></td>
+          <td>{{ r.waiting }}</td>
+          <td>{{ r.hod.name or r.hod.email or '—' }}</td>
+          <td>{% if r.filed %}<span class="muted">{{ r.filed }}</span>{% elif r.submitted %}yes{% else %}<span class="pill warn">no</span>{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% elif part.has_db %}
+    <p class="stat">No POOR courses match these filters — nothing awaiting an ATR here.</p>
+  {% endif %}
+
+  <p class="muted" style="margin-top:12px">
+    Tip: “Waiting on → HOD not acted” lists exactly the ATRs sitting with an HOD;
+    “Faculty — not submitted” lists teachers who received an ATR request but have
+    not filed. For the full student-by-student view use
+    <a href="{{ url_for('admin.participation', cycle_id=cycle.id) }}">Participation</a>.</p>
+
+{% endblock %}

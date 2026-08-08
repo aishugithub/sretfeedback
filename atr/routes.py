@@ -31,7 +31,7 @@ import os
 from functools import wraps
 
 from flask import (render_template, request, redirect, url_for, abort, flash,
-                   session)
+                   session, current_app)
 
 import db
 from db import get_master
@@ -349,8 +349,11 @@ def leader_set_password():
 def atr_dashboard():
     leader = _current_leader()
     master = get_master()
+    # Leaders never pick an archived cycle from their ATR dashboard dropdown;
+    # archived cycles are done-and-recorded and drop out of the operational view.
     cycles = master.execute(
-        "SELECT * FROM cycle ORDER BY academic_year, code").fetchall()
+        "SELECT * FROM cycle WHERE status != 'ARCHIVED' "
+        "ORDER BY academic_year, code").fetchall()
 
     cycle_code = request.args.get("cycle", "").strip()
     selected = None
@@ -408,10 +411,16 @@ def atr_dashboard():
              else unassigned_rows).append(r)
 
     master.close()
+    # How many ATRs are in THIS leader's action queue right now (owner == role)?
+    # Drives the "Endorse all (N)" button, shown only to whole-slate endorsers.
+    my_count = sum(1 for r in rows if r["mine"])
+    can_endorse_all = (leader["role"] or "").upper() in (
+        atr_workflow.ROLE_VICE_DEAN, atr_workflow.ROLE_DEAN)
     return render_template("atr_dashboard.html", leader=leader, cycles=cycles,
                            selected=selected, rows=rows,
                            external_rows=external_rows,
-                           unassigned_rows=unassigned_rows)
+                           unassigned_rows=unassigned_rows,
+                           my_count=my_count, can_endorse_all=can_endorse_all)
 
 
 # ----------------------------------------------------------------------------
@@ -470,10 +479,30 @@ def atr_review(cycle_code, atr_id):
         master.close(); cy.close()
         abort(403)
     events = atr_workflow.events_for(cy, atr_id)
+    # Resolve each event's actor to a HUMAN NAME. atr_event.actor_user_id holds an
+    # app_user.id (as text) for a leader, or the 'FACULTY' sentinel / NULL for the
+    # faculty member (who has no login). Build an id->name map from the SAME Users &
+    # Roles table the admin manages, so the audit trail reads "Dr Priya (HOD)"
+    # instead of a bare "5". (Faculty stay anonymous-by-role — just "Faculty" — since
+    # they act via a magic link and have no app_user row.)
+    users = {str(u["id"]): {"name": (u["name"] or u["email"]), "role": u["role"]}
+             for u in master.execute(
+                 "SELECT id, name, email, role FROM app_user").fetchall()}
+    events_view = []
+    for e in events:
+        aid = e["actor_user_id"]
+        if aid in (None, "", "FACULTY"):
+            label, role = "Faculty", None
+        else:
+            u = users.get(str(aid))
+            label = u["name"] if u else ("User #%s" % aid)
+            role = u["role"] if u else None
+        events_view.append({"action": e["action"], "comment": e["comment"],
+                            "at": e["at"], "actor_label": label, "actor_role": role})
     master.close(); cy.close()
     actions = atr_workflow.legal_actions(atr_row["state"], leader["role"])
     return render_template("atr_review.html", leader=leader, cycle=cycle_row,
-                           atr=atr_row, offering=offering, events=events,
+                           atr=atr_row, offering=offering, events=events_view,
                            actions=actions)
 
 
@@ -538,19 +567,147 @@ def atr_act(cycle_code, atr_id, action):
             cy.commit()
 
     atr_after = atr_workflow.get_atr(cy, atr_id)
+    recorded = False
     try:
         notifications.notify_state_change(
             master, cy, cycle_row, atr_after, action, new_state,
             reason=comment, faculty_link_jti=faculty_jti)
+        # If THIS endorse was the Dean closing the last outstanding ATR, the whole
+        # cycle is now done — advance it to RECORDED (same gate the bulk endorse uses).
+        if (action == atr_workflow.ACTION_ENDORSE
+                and new_state == atr_workflow.STATE_CLOSED
+                and (leader["role"] or "").upper() == atr_workflow.ROLE_DEAN):
+            recorded = _maybe_mark_recorded(master, cycle_row, cy)
     finally:
         master.close(); cy.close()
 
     # ACTIVITY LOG (Module 3): the leader is in session, so the hook already stamps
     # WHO; this note adds WHAT precisely — endorse vs return, and the new state.
     import activity_log
-    activity_log.note(detail=f"{action.title()} → {new_state} (ATR #{atr_id})",
+    activity_log.note(detail=f"{action.title()} → {new_state} (ATR #{atr_id})"
+                      + (" — cycle RECORDED" if recorded else ""),
                       cycle_code=cycle_code, target_type="atr", target_id=atr_id)
-    flash("Done — ATR is now %s." % new_state, "success")
+    msg = "Done — ATR is now %s." % new_state
+    if recorded:
+        msg += " All ATRs are now closed — the cycle is COMPLETE & RECORDED."
+    flash(msg, "success")
+    return redirect(url_for("atr.atr_dashboard", cycle=cycle_code))
+
+
+# ----------------------------------------------------------------------------
+# _maybe_mark_recorded(master, cycle_row, cy) -> bool
+# ----------------------------------------------------------------------------
+# The "cycle done and recorded" gate (the professor's requirement). Once the Dean
+# has endorsed the LAST outstanding ATR, the whole endorsement process is complete
+# for the cycle. When every ATR is CLOSED we advance the cycle's status to
+# RECORDED — a new terminal-but-not-yet-archived state that (a) tells the admin the
+# cycle is ready for its signed audit report + archive, and (b) is what the audit
+# report and archive steps check before they will run. Idempotent and safe: it
+# only writes when all ATRs are closed and the cycle is not already ARCHIVED.
+# Returns True if it just moved the cycle to RECORDED.
+# ----------------------------------------------------------------------------
+def _maybe_mark_recorded(master, cycle_row, cy):
+    summ = atr_workflow.cycle_atr_summary(cy)
+    if summ["all_closed"] and cycle_row["status"] not in ("ARCHIVED", "RECORDED"):
+        master.execute("UPDATE cycle SET status = 'RECORDED' WHERE id = ?",
+                       (cycle_row["id"],))
+        master.commit()
+        return True
+    return False
+
+
+# ----------------------------------------------------------------------------
+# POST /atr/endorse-all/<cycle_code>  —  Dean / Vice-Dean bulk endorsement.
+# ----------------------------------------------------------------------------
+# The professor's rule: "the Dean cannot click on everybody — there has to be a
+# button to endorse all", and the Vice-Dean gets the same (scoped to their depts).
+# We endorse EVERY ATR currently in this leader's action queue (current_owner_role
+# == their role) AND within their RBAC scope — nothing outside their remit is ever
+# touched. Each endorsement goes through the SAME pure state machine
+# (apply_transition), so every move is legal, correctly-actored and audit-logged
+# exactly as a one-by-one click would be; there is no bulk shortcut around the FSM.
+# HODs are intentionally excluded (they act item-by-item). When the Dean's bulk
+# endorsement closes the last ATR, the cycle flips to RECORDED.
+# ----------------------------------------------------------------------------
+@atr_bp.route("/atr/endorse-all/<cycle_code>", methods=["POST"])
+@leader_required
+def atr_endorse_all(cycle_code):
+    leader = _current_leader()
+    role = (leader["role"] or "").upper()
+    # Only whole-slate endorsers: Vice Dean (their departments) and Dean (college).
+    if role not in (atr_workflow.ROLE_VICE_DEAN, atr_workflow.ROLE_DEAN):
+        abort(403)
+
+    master = get_master()
+    cycle_row = _cycle_by_code(master, cycle_code)
+    if cycle_row is None:
+        master.close(); abort(404)
+    if not os.path.exists(db.cycle_db_path(cycle_row["academic_year"],
+                                           cycle_row["code"])):
+        master.close()
+        flash("No ATRs exist for this cycle yet.", "error")
+        return redirect(url_for("atr.atr_dashboard", cycle=cycle_code))
+
+    # RBAC scope: the offerings this leader may see. Bulk endorsement can only ever
+    # touch ATRs whose offering is in this set — the §4 guarantee, applied in bulk.
+    visible_ids = {o["id"] for o in rbac.visible_offerings(master, leader, cycle_code)}
+
+    cy = _open_cycle_db(cycle_row)
+    # The leader's action queue: ATRs whose CURRENT owner role is this leader's role
+    # (PENDING_VD for a Vice-Dean, PENDING_DEAN for a Dean), intersected with scope.
+    queue = [a for a in
+             cy.execute("SELECT * FROM atr WHERE current_owner_role = ?",
+                        (role,)).fetchall()
+             if a["offering_id"] in visible_ids]
+
+    if not queue:
+        cy.close(); master.close()
+        flash("Nothing is awaiting your endorsement right now.", "success")
+        return redirect(url_for("atr.atr_dashboard", cycle=cycle_code))
+
+    # Endorse each through the pure state machine (legal + audited every time).
+    done, skipped, changed = 0, 0, []
+    for a in queue:
+        try:
+            new_state = atr_workflow.apply_transition(
+                cy, a["id"], atr_workflow.ACTION_ENDORSE, role,
+                actor_user_id=leader["id"], comment="Bulk endorsement")
+            changed.append((a["id"], new_state))
+            done += 1
+        except atr_workflow.IllegalTransition:
+            skipped += 1
+    cy.commit()
+
+    # Notify the next level for each ATR (reuse the §9 layer, one email per ATR).
+    base = request.url_root.rstrip("/")
+    for atr_id, new_state in changed:
+        atr_after = atr_workflow.get_atr(cy, atr_id)
+        try:
+            notifications.notify_state_change(
+                master, cy, cycle_row, atr_after,
+                atr_workflow.ACTION_ENDORSE, new_state, base_url=base)
+        except Exception as e:            # a mail hiccup must not undo the endorsement
+            current_app.logger.warning("endorse-all notify failed: %s", e)
+
+    # If the Dean just cleared the last pending ATR, the cycle is done & recorded.
+    recorded = _maybe_mark_recorded(master, cycle_row, cy) \
+        if role == atr_workflow.ROLE_DEAN else False
+
+    cy.close(); master.close()
+
+    import activity_log
+    activity_log.note(
+        detail=("Endorse-all by %s: %d endorsed%s%s"
+                % (role, done, (", %d skipped" % skipped) if skipped else "",
+                   " — cycle COMPLETE & RECORDED" if recorded else "")),
+        cycle_code=cycle_code, target_type="cycle", target_id=cycle_row["id"])
+
+    msg = "Endorsed %d ATR(s) in one action." % done
+    if skipped:
+        msg += " %d were skipped (no longer in your queue)." % skipped
+    if recorded:
+        msg += " All ATRs are now closed — the cycle is COMPLETE & RECORDED."
+    flash(msg, "success")
     return redirect(url_for("atr.atr_dashboard", cycle=cycle_code))
 
 

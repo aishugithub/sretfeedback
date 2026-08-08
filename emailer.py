@@ -70,6 +70,74 @@ def smtp_settings():
 #   from_addr: the address mail is sent AS
 #   host     : a human label of the transport (for the reassurance line)
 # ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# THREE-LEVEL TESTING MODEL (v2.1). A cycle carries a `test_level` (0-3) that
+# controls, PER AUDIENCE, whether a message goes to a real recipient or is
+# redirected to a test inbox — and whether reports are watermarked. This is the
+# single place the routing rule lives, so the mailer, the distribution job and
+# the pre-send banners all agree.
+#
+#   Level 0 PRODUCTION : students, faculty, leaders all REAL; reports clean.
+#   Level 1 (safest)   : students -> student test inbox (Config.TEST_REDIRECT_EMAIL)
+#                        faculty/leaders -> staff test inbox (Config.FACULTY_ALIAS_EMAIL)
+#   Level 2            : students -> student test inbox; faculty/leaders REAL.
+#   Level 3            : students, faculty, leaders all REAL; reports WATERMARKED.
+# ----------------------------------------------------------------------------
+TEST_LEVEL_PRODUCTION = 0
+
+
+def test_level_of(cycle_row):
+    """Read a cycle's test_level, tolerating rows that predate the column (a test
+    fixture, or a DB not yet migrated): fall back to the legacy is_test flag
+    (1 -> level 1, else level 0). Always returns a plain int 0-3."""
+    lvl = None
+    try:
+        lvl = cycle_row["test_level"]
+    except (KeyError, IndexError, TypeError):
+        lvl = None
+    if lvl is None:
+        try:
+            lvl = 1 if cycle_row["is_test"] else 0
+        except (KeyError, IndexError, TypeError):
+            lvl = 0
+    try:
+        return int(lvl)
+    except (TypeError, ValueError):
+        return 0
+
+
+def is_watermarked(cycle_row):
+    """Reports carry the 'TEST DATA' watermark at every non-production level
+    (1, 2 and 3); only a promoted, level-0 production cycle prints clean copies."""
+    return test_level_of(cycle_row) != TEST_LEVEL_PRODUCTION
+
+
+def redirect_target(test_level, audience):
+    """WHERE a message of the given audience is really delivered at this level, or
+    None to send it to its real recipient. `audience` is 'student', 'faculty' or
+    'leader' (faculty and leaders route identically — both are institutional staff).
+    This is the whole §9 routing table expressed once, in code:
+
+        level 0  -> None for everyone (production)
+        level 1  -> students to the student inbox, staff to the staff inbox
+        level 2  -> students to the student inbox, staff REAL (None)
+        level 3  -> None for everyone (all real, but reports still watermarked)
+    """
+    from config import Config
+    is_student = (audience or "student").lower() == "student"
+    try:
+        level = int(test_level)
+    except (TypeError, ValueError):
+        level = 0
+    if level <= TEST_LEVEL_PRODUCTION:          # 0 production: all real
+        return None
+    if level == 1:
+        return Config.TEST_REDIRECT_EMAIL if is_student else Config.FACULTY_ALIAS_EMAIL
+    if level == 2:
+        return Config.TEST_REDIRECT_EMAIL if is_student else None
+    return None                                  # level 3: everyone real
+
+
 def active_mode():
     from gmail_api import gmail_settings   # imported here to avoid an import cycle
     g = gmail_settings()
@@ -154,7 +222,17 @@ def _outbox_dir(base_dir):
 # recipient never sees another student's address, and each carries only that
 # student's link.
 # ----------------------------------------------------------------------------
-def send_batch(base_dir, subject, messages, is_test=False):
+def send_batch(base_dir, subject, messages, is_test=False,
+               test_level=None, audience="student"):
+    # THREE-LEVEL ROUTING (v2.1). `test_level` (0-3) + `audience`
+    # ('student'/'faculty'/'leader') decide whether this batch is delivered to
+    # real recipients or hard-redirected to a test inbox. For backward
+    # compatibility, a caller that still passes only the old `is_test` bool is
+    # mapped to level 1 (redirect) or 0 (production) — so nothing that hasn't been
+    # updated yet can accidentally start sending live.
+    if test_level is None:
+        test_level = 1 if is_test else 0
+
     # Detect BOTH transports up front so we can pick the mode by precedence.
     # gmail_settings() lives in gmail_api.py; imported flat (like `from config
     # import Config` below) because the app runs with app/ on the import path.
@@ -173,22 +251,24 @@ def send_batch(base_dir, subject, messages, is_test=False):
     summary = {"mode": mode,
                "count": 0, "errors": [], "outbox": None, "redirected": False}
 
-    # ---- TEST-MODE HARD REDIRECT (spec §9.1) --------------------------------
-    # When the cycle is a test cycle, EVERY outbound message is rewritten to the
-    # single designated test address, right here in the mailer. This is enforced
-    # in code, not by a config file or by fake addresses in a spreadsheet — so
-    # one un-edited cell can never leak a real send. The original intended
-    # recipient is preserved in the body for the tester's reference, and the
-    # subject is tagged. Applies to BOTH smtp and dev-outbox modes.
-    if is_test:
-        from config import Config
-        redirect_to = Config.TEST_REDIRECT_EMAIL
-        subject = f"[TEST] {subject}"
+    # ---- TEST-LEVEL HARD REDIRECT (§9, three-level model) -------------------
+    # Ask the single routing table (redirect_target) where THIS batch's audience
+    # goes at THIS level. If it returns an address, EVERY outbound message is
+    # rewritten to that test inbox, right here in the mailer — enforced in code,
+    # not by a config file or by fake spreadsheet addresses, so one un-edited cell
+    # can never leak a real send. If it returns None, mail flows to the real
+    # recipients (level 0 for everyone; level 2 for staff; level 3 for everyone).
+    # The original intended recipient is preserved in the body and the subject is
+    # tagged. Applies identically to gmail-api, smtp and dev-outbox modes.
+    redirect_to = redirect_target(test_level, audience)
+    if redirect_to:
+        subject = f"[TEST L{test_level}] {subject}"
         rewritten = []
         for m in messages:
             rewritten.append({
                 "to": redirect_to,
-                "body": (f"*** TEST CYCLE — original recipient: {m.get('to','?')} ***\n\n"
+                "body": (f"*** TEST (level {test_level}, {audience}) — "
+                         f"original recipient: {m.get('to','?')} ***\n\n"
                          + (m.get("body") or "")),
                 # Preserve any attachments through the redirect so a test send still
                 # demonstrates the real report PDFs (just to the safe test address).

@@ -129,7 +129,9 @@ SENSITIVE_GET = {
     "admin.report_one",       # single report download
     "admin.report_bulk",      # batch report download
     "admin.readiness_export", # readiness-check export
+    "admin.cycles_audit_report",  # signed audit-report generation + download (v2.1)
     "atr.leader_logout",      # session end (GET, but state-changing)
+    "admin.admin_logout",     # admin session end (v2.1)
 }
 
 # HTTP methods that CHANGE state. Any request using one of these is logged (unless
@@ -154,7 +156,14 @@ def _actor_from_session():
     if leader_id:
         # A logged-in leader: label them by the email we stored at login time.
         return ACTOR_LEADER, leader_id, session.get("leader_email", "leader")
-    # No leader session → the local admin console (the professor).
+    # A logged-in ADMIN (v2.1): the console is now login-gated with two named admin
+    # accounts for accountability, so attribute the action to the SPECIFIC admin
+    # (their email + app_user id) rather than a generic "admin-console" — this is
+    # exactly what makes the two operators individually accountable in the audit log.
+    admin_id = session.get("admin_id")
+    if admin_id:
+        return ACTOR_ADMIN, admin_id, session.get("admin_email", "admin")
+    # No session at all → a system/bootstrap action (e.g. a CLI script).
     return ACTOR_ADMIN, None, "admin-console"
 
 

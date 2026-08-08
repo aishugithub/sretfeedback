@@ -29,7 +29,10 @@ def dashboard():
     # dropdown (?cycle=CODE) and defaulting to the first cycle — consistent with
     # the Offerings and Students pages. Without this the tiles summed every cycle
     # together, which was misleading once more than one cycle had data.
-    cycles = conn.execute("SELECT * FROM cycle ORDER BY id").fetchall()
+    # Archived cycles are hidden from every operational dropdown (the point of
+    # archiving); they remain visible only on the Cycles page and the audit log.
+    cycles = conn.execute(
+        "SELECT * FROM cycle WHERE status != 'ARCHIVED' ORDER BY id").fetchall()
     cycle_code = (request.args.get("cycle", "").strip()
                   or (cycles[0]["code"] if cycles else "CA1"))
 
@@ -68,7 +71,10 @@ def roster_list():
     # so it listed every cycle's offerings jumbled together. We now scope to one
     # cycle chosen from a dropdown (?cycle=CODE), defaulting to the first cycle —
     # mirroring the Students page — so what you see always belongs to one cycle.
-    cycles = conn.execute("SELECT * FROM cycle ORDER BY id").fetchall()
+    # Archived cycles are hidden from every operational dropdown (the point of
+    # archiving); they remain visible only on the Cycles page and the audit log.
+    cycles = conn.execute(
+        "SELECT * FROM cycle WHERE status != 'ARCHIVED' ORDER BY id").fetchall()
     cycle_code = (request.args.get("cycle", "").strip()
                   or (cycles[0]["code"] if cycles else "CA1"))
 

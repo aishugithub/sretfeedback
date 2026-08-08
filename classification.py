@@ -217,9 +217,9 @@ def classify_cycle(master, cycle, cycle_row, discussed_late_weight=None):
 
     # Thresholds for THIS cycle. Use dict-style access with fallbacks so the
     # runner still works if handed a pre-migration cycle row in a test.
-    threshold_overall = _row_get(cycle_row, "threshold_overall", 8.0)
+    threshold_overall = _row_get(cycle_row, "threshold_overall", 7.5)
     threshold_section = _row_get(cycle_row, "threshold_section", None)
-    min_responses = _row_get(cycle_row, "min_responses", 10)
+    min_responses = _row_get(cycle_row, "min_responses", 0)
 
     # Resolve the configurable scoring weight once (single source of truth).
     if discussed_late_weight is None:

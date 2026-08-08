@@ -84,8 +84,10 @@ def _offerings_with_responses(master, cycle):
 @admin_bp.route("/reports")
 def reports_home():
     master = get_master()
+    # Hide archived cycles from the report picker (visible only on Cycles page).
     cycles = master.execute(
-        "SELECT * FROM cycle ORDER BY academic_year, code").fetchall()
+        "SELECT * FROM cycle WHERE status != 'ARCHIVED' "
+        "ORDER BY academic_year, code").fetchall()
 
     # Which cycle is selected? Default to the first that has a db file.
     cycle_id = request.args.get("cycle_id", "").strip()

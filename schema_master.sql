@@ -321,12 +321,30 @@ CREATE TABLE IF NOT EXISTS cycle (
     -- v3 lifecycle (spec §9): DRAFT while uploads/readiness in progress, OPEN once
     -- the Readiness Check passes and invitations go out, CLOSED after the window,
     -- ARCHIVED once the per-cycle DB is moved aside.
-    status        TEXT NOT NULL DEFAULT 'DRAFT', -- DRAFT / OPEN / CLOSED / ARCHIVED
+    -- DRAFT while uploads/readiness in progress; OPEN while collecting; CLOSED after
+    -- the window; RECORDED (v2.1) once the Dean has endorsed the LAST ATR — the whole
+    -- cycle is done and ready for its signed audit report; ARCHIVED after archive.
+    status        TEXT NOT NULL DEFAULT 'DRAFT', -- DRAFT / OPEN / CLOSED / RECORDED / ARCHIVED
     -- is_test (spec §9.1) — THE critical safety flag. When 1, ALL outbound email
     -- is hard-redirected to a test address inside the mailer (not by config), and
     -- generated PDFs carry a 'TEST DATA' watermark; test cycles are excluded from
     -- every real analytic and can be deleted wholesale.
     is_test       INTEGER NOT NULL DEFAULT 0,
+    -- test_level (v2.1 §9 — the THREE-LEVEL testing model that supersedes the
+    -- binary is_test). A cycle runs at exactly one graduated level:
+    --   0 = PRODUCTION : students, faculty and leaders all receive REAL mail;
+    --                    reports are clean (no watermark). Reached only by the
+    --                    admin "Purge & promote to production" action.
+    --   1 = safest     : students -> student test inbox; faculty/leaders -> staff
+    --                    test inbox. Nobody real is contacted.
+    --   2 = students still redirected to the student test inbox, but REAL faculty
+    --                    and leaders now receive their mail.
+    --   3 = students, faculty and leaders ALL real, but reports still WATERMARKED.
+    -- Levels 1-3 all watermark reports; only level 0 produces official clean copies.
+    -- is_test is kept in lock-step (is_test = 1 whenever test_level != 0) so any
+    -- older code that still reads is_test keeps meaning "this is a non-production
+    -- cycle". A fresh cycle defaults to level 1 — the SAFE end of the range.
+    test_level    INTEGER NOT NULL DEFAULT 1,
     -- readiness_state (spec §8.6) — cached result of the Readiness Check:
     -- 'UNKNOWN' (not yet run), 'NOT_READY' (errors outstanding), 'READY' (gate open).
     -- The "Open cycle" action is disabled unless this reads 'READY'.
@@ -339,9 +357,9 @@ CREATE TABLE IF NOT EXISTS cycle (
     -- /10, so these are /10 numbers. classification.py (never scoring.py) reads
     -- them. Editable up to the moment banding runs, matching the app's existing
     -- "editable, no re-import" style.
-    threshold_overall REAL NOT NULL DEFAULT 8.0, -- overall < this ⇒ POOR (e.g. CA1 8.0)
+    threshold_overall REAL NOT NULL DEFAULT 7.5, -- overall < this ⇒ POOR (institution default 7.5)
     threshold_section REAL,                       -- optional: any critical section < this ⇒ POOR (NULL = off)
-    min_responses     INTEGER NOT NULL DEFAULT 10,-- only band when n_responses ≥ this (tiny-sample guard)
+    min_responses     INTEGER NOT NULL DEFAULT 0, -- only band when n_responses ≥ this; 0 = band every scored course
     -- VERSION 2.0 · §7 — the editable greeting/preamble that tops each faculty
     -- RESULT-DISTRIBUTION email (distinct from email_body, which is the STUDENT
     -- invitation text). Kept per-cycle so wording can vary; NULL = use the default.
@@ -458,7 +476,15 @@ CREATE TABLE IF NOT EXISTS app_user (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     email          TEXT NOT NULL UNIQUE,     -- login id, an @sriher.edu.in address
     name           TEXT,                     -- display name for the accounts screen (optional)
-    role           TEXT NOT NULL,            -- 'HOD' | 'VICE_DEAN' | 'DEAN'
+    role           TEXT NOT NULL,            -- 'HOD' | 'VICE_DEAN' | 'DEAN' | 'ADMIN'
+    -- is_admin (v2.1) — DECOUPLES "may use the admin console" from the org-tree
+    -- `role`. A single person can be BOTH a leader (e.g. the Vice Dean, who
+    -- endorses ATRs) AND a system administrator; `role` can hold only one value,
+    -- so admin access is a SEPARATE flag. The admin login gate checks is_admin=1,
+    -- never `role`, so making the Vice Dean an admin does NOT remove her from the
+    -- endorsement chain. A pure admin (no org-tree duties) is stored with
+    -- role='ADMIN' + is_admin=1, which keeps them out of every HOD/VD/DEAN roll-up.
+    is_admin       INTEGER NOT NULL DEFAULT 0,
     scope_dept_ids TEXT NOT NULL DEFAULT '', -- CSV of E-codes, or 'ALL' for whole college
     pw_hash        TEXT NOT NULL DEFAULT '', -- pbkdf2_hmac hash; '' until the user sets a password
     status         TEXT NOT NULL DEFAULT 'active', -- 'active' | 'disabled'

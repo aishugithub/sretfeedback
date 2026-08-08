@@ -39,6 +39,12 @@ SCOPE_ALL = "ALL"
 ROLE_DEAN = "DEAN"
 ROLE_VICE_DEAN = "VICE_DEAN"
 ROLE_HOD = "HOD"
+# v2.1 — the ADMIN role: the two operators who run the console (login-gated). An
+# admin is NOT part of the endorsement org tree (never an endorser), so the
+# distribution roll-ups query only HOD/VICE_DEAN/DEAN and skip ADMIN rows. Admins
+# live in the same app_user table purely to reuse the password + set-password-link
+# machinery; their access is gated by the admin blueprint, not by dept scope.
+ROLE_ADMIN = "ADMIN"
 
 # v2.0 · Module 5 — the special home_dept_code value meaning "this faculty has NO
 # HOD; only the Vice Dean/Dean oversee them" (external/visiting staff). It is NOT

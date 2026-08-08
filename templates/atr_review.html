@@ -60,7 +60,7 @@
         <tr>
           <td>{{ loop.index }}</td>
           <td>{{ e.action }}</td>
-          <td>{{ e.actor_user_id or '—' }}</td>
+          <td>{{ e.actor_label }}{% if e.actor_role %} <span class="muted">({{ e.actor_role }})</span>{% endif %}</td>
           <td>{{ e.comment or '' }}</td>
           <td class="muted">{{ e.at }}</td>
         </tr>

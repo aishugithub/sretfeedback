@@ -41,3 +41,5 @@ from admin import cycles          # noqa: E402,F401  cycles + tokens + participa
 from admin import reports         # noqa: E402,F401  scoring + Excel/PDF report export
 from admin import users           # noqa: E402,F401  Users & Roles: leaders + set-pw invites (§17)
 from admin import faculty         # noqa: E402,F401  Manage Faculty: the faculty master (Module 5)
+from admin import auth            # noqa: E402,F401  ADMIN login/logout/forgot + the login gate (v2.1)
+from admin import status          # noqa: E402,F401  cycle status / ATR tracking board (v2.1)

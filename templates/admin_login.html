@@ -1,0 +1,33 @@
+{# ==========================================================================
+   admin_login.html  —  v2.1 : ADMIN console login (two named admin accounts)
+   --------------------------------------------------------------------------
+   WHERE THIS FITS: served by admin.admin_login. This is the gate in front of the
+   whole /admin/* console (enforced by admin/auth.py's before_request). The admin
+   nav is hidden here because you cannot use it until you are logged in.
+   ========================================================================== #}
+{% extends "base.html" %}
+{% block subtitle %}Admin login{% endblock %}
+{% block nav %}{% endblock %}
+{% block content %}
+  <div class="card" style="max-width:420px">
+    <h2 style="margin-top:0">Admin login</h2>
+    <form method="post" action="{{ url_for('admin.admin_login') }}">
+      {# Carry the page the admin was trying to reach, so we can return there. #}
+      <input type="hidden" name="next" value="{{ next or '' }}">
+      <div class="field">
+        <label for="email">Admin email</label>
+        <input id="email" name="email" type="email" required
+               placeholder="you@sret.edu.in" autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" required>
+      </div>
+      <button class="btn" type="submit">Log in</button>
+    </form>
+    <p class="muted" style="margin-top:14px">
+      First time here? Use the “set your password” link emailed to you.<br>
+      Forgot your password? <a href="{{ url_for('admin.admin_forgot') }}">Request a reset link</a>.
+    </p>
+  </div>
+{% endblock %}

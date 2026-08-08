@@ -338,6 +338,27 @@ def record_reminder(cycle, atr_id, actor_user_id, comment=None):
 
 
 # ----------------------------------------------------------------------------
+# cycle_atr_summary(cycle) -> dict — a small tally of this cycle's ATRs by state.
+# ----------------------------------------------------------------------------
+# Used by (a) the "Endorse all" flow and (b) the "is the whole cycle finished?"
+# check that flips a cycle to RECORDED once the Dean has closed the last ATR.
+#   total       : how many ATR rows exist for the cycle,
+#   closed      : how many are CLOSED (Dean-endorsed, terminal),
+#   all_closed  : True iff there is at least one ATR and EVERY one is CLOSED,
+#   counts      : the full state -> count map (for a dashboard breakdown).
+# Reads only the per-cycle atr table (identity-free); commits nothing.
+# ----------------------------------------------------------------------------
+def cycle_atr_summary(cycle):
+    rows = cycle.execute(
+        "SELECT state, COUNT(*) AS n FROM atr GROUP BY state").fetchall()
+    counts = {r["state"]: r["n"] for r in rows}
+    total = sum(counts.values())
+    closed = counts.get(STATE_CLOSED, 0)
+    return {"total": total, "closed": closed,
+            "all_closed": (total > 0 and closed == total), "counts": counts}
+
+
+# ----------------------------------------------------------------------------
 # events_for(cycle, atr_id) -> list[Row] — the full, ordered audit trail for one
 # ATR, for a review screen or an export. Oldest-first so it reads as a timeline.
 # ----------------------------------------------------------------------------

@@ -40,7 +40,9 @@ def _cycle_by_code(conn, code):
 
 
 def _default_cycle_code(conn):
-    row = conn.execute("SELECT code FROM cycle ORDER BY id LIMIT 1").fetchone()
+    row = conn.execute(
+        "SELECT code FROM cycle WHERE status != 'ARCHIVED' "
+        "ORDER BY id LIMIT 1").fetchone()
     return row["code"] if row else "CA1"
 
 
@@ -82,7 +84,10 @@ def students_list():
     excluded = conn.execute(
         "SELECT COUNT(*) n FROM students WHERE cycle_code=? AND status='excluded'",
         (cycle_code,)).fetchone()["n"]
-    cycles = conn.execute("SELECT code, label FROM cycle ORDER BY id").fetchall()
+    # Archived cycles are excluded from the students-page cycle picker.
+    cycles = conn.execute(
+        "SELECT code, label FROM cycle WHERE status != 'ARCHIVED' "
+        "ORDER BY id").fetchall()
     conn.close()
     return render_template("students_list.html",
                            students=rows, depts=depts, total=total,

@@ -98,10 +98,34 @@ class Config:
     # Faculty emails are validated to be on an institutional domain at upload (§7.2).
     FACULTY_EMAIL_DOMAINS = ("sret.edu.in", "sriher.edu.in")
 
-    # TEST-MODE SAFETY (spec §9.1). When a cycle has is_test=1, the mailer HARD-
-    # redirects every outbound message to this single address, enforced in code
-    # so one un-edited spreadsheet cell can never send real mail. Override via env.
+    # TEST-MODE SAFETY (spec §9.1, extended to the three-level model in v2.1).
+    # A cycle now runs at one of four graduated TEST LEVELS (cycle.test_level):
+    #   0 PRODUCTION : everyone real, no watermark (the promoted, live run).
+    #   1 (safest)   : students  -> TEST_REDIRECT_EMAIL (student inbox);
+    #                  faculty/leaders -> FACULTY_ALIAS_EMAIL (staff inbox).
+    #   2            : students  -> TEST_REDIRECT_EMAIL; faculty/leaders REAL.
+    #   3            : everyone REAL, but reports still carry the watermark.
+    # The mailer (emailer.py) enforces this routing in code, so one un-edited
+    # spreadsheet cell can never leak a real send while testing. Both addresses are
+    # env-configurable; the defaults are safe placeholders.
+    #
+    # TEST_REDIRECT_EMAIL = the STUDENT test inbox (Levels 1 & 2 catch students here).
     TEST_REDIRECT_EMAIL = os.environ.get("FEEDBACK_TEST_EMAIL", "feedback-test@sret.edu.in")
+    # FACULTY_ALIAS_EMAIL = the TEACHER/LEADER test inbox (Level 1 catches staff here).
+    FACULTY_ALIAS_EMAIL = os.environ.get("FEEDBACK_FACULTY_ALIAS_EMAIL", "feedback-staff-test@sret.edu.in")
+
+    # ------------------------------------------------------------------------
+    # TRUSTED TIMESTAMP (v2.1) — the end-of-cycle audit PDF is digitally signed
+    # (signing.py); optionally we also embed an RFC-3161 TRUSTED TIMESTAMP from a
+    # Timestamp Authority (TSA), which cryptographically attests the document
+    # existed at a given time (independent of the server clock) and underpins
+    # long-term validation. This is OPT-IN via env: set FEEDBACK_TSA_URL to a TSA
+    # endpoint (e.g. FreeTSA "https://freetsa.org/tsr", or a commercial TSA). If it
+    # is unset OR unreachable, the report is still produced — signed, just without a
+    # timestamp — so audit generation never fails. NOTE: PythonAnywhere's FREE tier
+    # only permits whitelisted outbound hosts, so a TSA call will fail there unless
+    # the host is whitelisted (a paid tier has open outbound access).
+    TSA_URL = os.environ.get("FEEDBACK_TSA_URL", "").strip()
 
     # ------------------------------------------------------------------------
     # EMAIL TRANSPORT (v1.5). The mailer (emailer.py) picks a transport by

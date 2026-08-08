@@ -24,7 +24,8 @@
 
 import os
 import json
-from flask import render_template, request, redirect, url_for, flash, current_app
+from flask import (render_template, request, redirect, url_for, flash,
+                   current_app, Response)
 
 import db
 from db import get_master, get_cycle
@@ -93,25 +94,78 @@ def cycles_new():
         conn.close()
         flash("Cycle code and label are required.", "error")
         return redirect(url_for("admin.cycles_list"))
-    # is_test (spec §9): a checkbox on the create form. A test cycle sends all
-    # mail to the redirect address and is excluded from real analytics.
-    is_test = 1 if request.form.get("is_test") == "on" else 0
+    # test_level (§9 three-level model): a dropdown on the create form. A brand-new
+    # cycle defaults to Level 1 — the SAFEST end (nobody real is contacted) — so a
+    # cycle is always born safe and is walked UP to production deliberately. We
+    # accept only 1/2/3 here; Level 0 (production) is reached solely via the admin
+    # "Purge & promote to production" action, never at raw creation. is_test is kept
+    # in lock-step (1 whenever level != 0) for any code that still reads it.
+    try:
+        test_level = int(request.form.get("test_level", "1"))
+    except (TypeError, ValueError):
+        test_level = 1
+    if test_level not in (1, 2, 3):
+        test_level = 1
+    is_test = 0 if test_level == 0 else 1
     default_email = ("Dear {student_name},\n\n"
                      "Please submit your {cycle_name} feedback for all your courses here:\n"
                      "{link}\n\nYour feedback is completely anonymous.\n\n- SRET")
     try:
+        # NOTE: threshold_overall (7.5) and min_responses (0) are set EXPLICITLY here
+        # rather than relying on the table-level DEFAULT. SQLite cannot retro-change a
+        # column default on an already-created table, so on the live master.db a new
+        # cycle would otherwise inherit the OLD 8.0/10 default baked into the existing
+        # table. Setting them on the INSERT makes "poor < 7.5, band every course
+        # (min 0)" the true institution default for every new cycle, everywhere.
         conn.execute(
             "INSERT INTO cycle (code, label, academic_year, email_body, is_open, "
-            "status, is_test) VALUES (?, ?, ?, ?, 0, 'DRAFT', ?)",
-            (code, label, ay_label, default_email, is_test))
+            "status, is_test, test_level, threshold_overall, min_responses) "
+            "VALUES (?, ?, ?, ?, 0, 'DRAFT', ?, ?, 7.5, 0)",
+            (code, label, ay_label, default_email, is_test, test_level))
         conn.commit()
     except Exception as e:
         conn.close()
         flash(f"Could not create cycle (duplicate code for this AY?): {e}", "error")
         return redirect(url_for("admin.cycles_list"))
     conn.close()
-    flash(f"Cycle {code} created (DRAFT{', TEST' if is_test else ''}). "
+    flash(f"Cycle {code} created (DRAFT, Test Level {test_level}). "
           f"Pass the Readiness Check, then open it.", "success")
+    return redirect(url_for("admin.cycles_list"))
+
+
+# ----------------------------------------------------------------------------
+# POST /admin/cycles/<id>/test_level — move a cycle between test LEVELS 1↔2↔3.
+# ----------------------------------------------------------------------------
+# This is how the admin walks a cycle UP the testing ladder as each level passes
+# (L1 all-redirected → L2 real staff → L3 all real, watermarked). It deliberately
+# accepts ONLY 1/2/3: Level 0 (production) is never set here — reaching production
+# requires wiping the test feedback first, which is the separate "Purge & promote
+# to production" action (guarded by a typed confirmation). is_test is kept in
+# lock-step so any legacy is_test reader stays correct.
+# ----------------------------------------------------------------------------
+@admin_bp.route("/cycles/<int:cycle_id>/test_level", methods=["POST"])
+def cycles_set_test_level(cycle_id):
+    conn = get_master()
+    c = conn.execute("SELECT * FROM cycle WHERE id=?", (cycle_id,)).fetchone()
+    if c is None:
+        conn.close(); flash("Cycle not found.", "error")
+        return redirect(url_for("admin.cycles_list"))
+    try:
+        new_level = int(request.form.get("test_level", ""))
+    except (TypeError, ValueError):
+        new_level = None
+    if new_level not in (1, 2, 3):
+        conn.close()
+        flash("Test level must be 1, 2 or 3. (Production is reached only via "
+              "Purge & promote to production.)", "error")
+        return redirect(url_for("admin.cycles_list"))
+    conn.execute("UPDATE cycle SET test_level=?, is_test=1 WHERE id=?",
+                 (new_level, cycle_id))
+    conn.commit(); conn.close()
+    import activity_log
+    activity_log.note(detail=f"Cycle {c['code']} test level set to {new_level}",
+                      cycle_code=c["code"], target_type="cycle", target_id=cycle_id)
+    flash(f"Cycle {c['code']} is now at Test Level {new_level}.", "success")
     return redirect(url_for("admin.cycles_list"))
 
 
@@ -210,15 +264,18 @@ def tokens_page(cycle_id):
     # The dangerous combination — real students actually get email — is ONLY
     # mail_live AND not is_test; the template highlights precisely that case.
     m = emailer.active_mode()                    # gmail-api > smtp > dev-outbox
+    level = emailer.test_level_of(c)             # 0 prod / 1 / 2 / 3
     mail = {
         "live": m["live"],                       # True = real mail (gmail-api OR smtp)
         "mode": m["mode"],
         "host": m["host"],                       # shown when live, for reassurance
         "from_addr": m["from_addr"],
-        "is_test": bool(c["is_test"]),           # test cycle -> recipients redirected
-        "test_redirect": Config.TEST_REDIRECT_EMAIL,
-        # The one true "real students will be emailed" flag the banner keys on.
-        "reaches_students": m["live"] and not bool(c["is_test"]),
+        "test_level": level,
+        "is_test": level != 0,                   # any non-production level
+        "test_redirect": Config.TEST_REDIRECT_EMAIL,   # student test inbox
+        # Real students are emailed ONLY at Level 3 or Production (0); Levels 1 & 2
+        # redirect every student message to the student test inbox.
+        "reaches_students": m["live"] and level in (0, 3),
     }
     return render_template("tokens_page.html", cycle=c, programmes=programmes,
                            depts=depts, ay=ay, dept_names=Config.DEPT_CODES,
@@ -301,11 +358,13 @@ def tokens_generate(cycle_id):
             body = emailer.render_body(c["email_body"], name, c["label"], link)
             messages.append({"to": email, "body": body})
         subject = f"SRET Feedback — {c['label']}"
-        # Pass the cycle's is_test flag so the mailer HARD-REDIRECTS every message
-        # to the test address in code (spec §9.1) — never a real send from a test
-        # cycle, regardless of the addresses in the batch.
+        # Pass the cycle's test LEVEL + the 'student' audience so the mailer applies
+        # the §9 routing: at Levels 1 & 2 every student email is hard-redirected to
+        # the student test inbox (never a real student), at Level 3 / production they
+        # reach the real students. Enforced in code, regardless of batch addresses.
         result = emailer.send_batch(Config.BASE_DIR, subject, messages,
-                                    is_test=bool(c["is_test"]))
+                                    test_level=emailer.test_level_of(c),
+                                    audience="student")
         if result["mode"] == "dev-outbox":
             msg += (f" Email DEV mode: {result['count']} message(s) written to "
                     f"{result['outbox']} (no SMTP configured).")
@@ -414,13 +473,15 @@ def participation(cycle_id):
     # Same live-mail status the Tokens page shows, so the "Send reminder" button
     # carries an identical pre-send warning (see tokens_page for the full rationale).
     m = emailer.active_mode()                    # gmail-api > smtp > dev-outbox
+    level = emailer.test_level_of(c)
     mail = {
         "live": m["live"],
         "host": m["host"],
         "from_addr": m["from_addr"],
-        "is_test": bool(c["is_test"]),
+        "test_level": level,
+        "is_test": level != 0,
         "test_redirect": Config.TEST_REDIRECT_EMAIL,
-        "reaches_students": m["live"] and not bool(c["is_test"]),
+        "reaches_students": m["live"] and level in (0, 3),
     }
     return render_template("participation.html", cycle=c,
                            per_student=per_student, offering_rows=offering_rows,
@@ -510,12 +571,17 @@ def distribute_page(cycle_id):
     # Same live-mail status banner the Tokens/Participation pages show, so the
     # professor knows whether a send goes to real inboxes or the dev outbox.
     m = emailer.active_mode()                    # gmail-api > smtp > dev-outbox
+    level = emailer.test_level_of(c)
     mail = {
         "live": m["live"],
         "from_addr": m["from_addr"],
-        "is_test": bool(c["is_test"]),
-        "reaches_faculty": m["live"] and not bool(c["is_test"]),
-        "test_redirect": Config.TEST_REDIRECT_EMAIL,   # the default test address
+        "test_level": level,
+        "is_test": level != 0,
+        # Faculty & leaders receive REAL mail at Levels 2, 3 and Production; only
+        # Level 1 redirects them to the staff test inbox.
+        "reaches_faculty": m["live"] and level in (0, 2, 3),
+        "test_redirect": Config.TEST_REDIRECT_EMAIL,      # student inbox (shown on page)
+        "faculty_alias": Config.FACULTY_ALIAS_EMAIL,      # staff inbox (Level 1 target)
     }
     conn.close()
     return render_template("distribute.html", cycle=c, rows=rows, tally=tally,
@@ -536,7 +602,7 @@ def distribute_thresholds(cycle_id):
         return redirect(url_for("admin.cycles_list"))
 
     # Parse the three numbers defensively — a stray value falls back to the sane
-    # default rather than erroring (overall 8.0, section off, min 10).
+    # institution default rather than erroring (overall 7.5, section off, min 0).
     def _f(name, default):
         raw = request.form.get(name, "").strip()
         if raw == "":
@@ -546,14 +612,16 @@ def distribute_thresholds(cycle_id):
         except ValueError:
             return default
 
-    overall = _f("threshold_overall", 8.0)
+    overall = _f("threshold_overall", 7.5)
     section_raw = request.form.get("threshold_section", "").strip()
     section = None if section_raw == "" else _f("threshold_section", None)
     min_raw = request.form.get("min_responses", "").strip()
+    # min_responses default is 0 (band every scored course); a blank field means
+    # "no tiny-sample guard", which is exactly 0.
     try:
-        min_responses = int(min_raw) if min_raw else 10
+        min_responses = int(min_raw) if min_raw else 0
     except ValueError:
-        min_responses = 10
+        min_responses = 0
 
     conn.execute(
         "UPDATE cycle SET threshold_overall=?, threshold_section=?, min_responses=? "
@@ -686,12 +754,12 @@ def participation_remind(cycle_id):
         return redirect(url_for("admin.participation", cycle_id=cycle_id))
 
     subject = f"Reminder — SRET Feedback {c['label']}"
-    # SAFETY: pass the cycle's is_test flag so reminders obey the SAME hard
-    # redirect as the initial token send. Without this, a reminder on a TEST cycle
-    # would bypass the test address and reach real students — the exact accident
-    # the test flag exists to prevent.
+    # SAFETY: reminders obey the SAME level routing as the initial token send —
+    # pass the cycle's test_level + 'student' audience so a reminder on a Level 1/2
+    # cycle is redirected to the student test inbox, never reaching real students.
     result = emailer.send_batch(Config.BASE_DIR, subject, messages,
-                                is_test=bool(c["is_test"]))
+                                test_level=emailer.test_level_of(c),
+                                audience="student")
     if result["mode"] == "dev-outbox":
         flash(f"Reminder DEV mode: {result['count']} message(s) written to {result['outbox']}.",
               "success")
@@ -722,6 +790,178 @@ def participation_remind(cycle_id):
 # here, the "confidential archive-and-move step never touches the master" rule
 # (spec Section 13) is guaranteed structurally.
 # ----------------------------------------------------------------------------
+
+# ============================================================================
+# CYCLE-COMPLETION SIGNED AUDIT REPORT  (v2.1)
+# ============================================================================
+# The admin-initiated "one whole thing to summarise the entire cycle" for auditing
+# (the professor's requirement). It builds the consolidated record (roster vs
+# participation, course faculties + feedback count + mark/10, ATRs given + their
+# explanations + the endorsement trail), DIGITALLY SIGNS it (app-embedded, via
+# signing.py — tamper-evident), also prints a SHA-256 fingerprint, saves a copy
+# into app/archive/ for the college's records, and streams it to the admin.
+#
+# Best run once the cycle is RECORDED (Dean endorsed every ATR); it can be produced
+# earlier too — a non-production (test-level) cycle is watermarked so a test copy
+# is never mistaken for the official one.
+# ----------------------------------------------------------------------------
+@admin_bp.route("/cycles/<int:cycle_id>/audit-report")
+def cycles_audit_report(cycle_id):
+    import audit_report
+    import activity_log
+    # mode=unsigned -> download the CONTENT PDF to sign on the laptop (recommended
+    # for the official copy: key stays off the server, and the laptop's open network
+    # can reach the trusted-timestamp TSA without any whitelisting). Default mode
+    # signs in-process on the server (convenient when no timestamp is needed).
+    unsigned_mode = request.args.get("mode") == "unsigned"
+    conn = get_master()
+    c = conn.execute("SELECT * FROM cycle WHERE id=?", (cycle_id,)).fetchone()
+    if c is None:
+        conn.close(); flash("Cycle not found.", "error")
+        return redirect(url_for("admin.cycles_list"))
+    try:
+        if unsigned_mode:
+            base, pdf, info = audit_report.build_unsigned_audit(conn, c)
+            filename = base + "_UNSIGNED.pdf"
+        else:
+            filename, pdf, info = audit_report.build_signed_audit(conn, c)
+    except Exception as e:
+        conn.close()
+        current_app.logger.exception("audit report failed")
+        flash("Could not generate the audit report: %s" % e, "error")
+        return redirect(url_for("admin.cycles_list"))
+    conn.close()
+
+    # Keep a copy of the SIGNED report in the archive folder for the college's
+    # records. (The unsigned content copy is not archived — the laptop produces and
+    # stores the sealed one.)
+    if not unsigned_mode:
+        try:
+            os.makedirs(Config.ARCHIVE_DIR, exist_ok=True)
+            with open(os.path.join(Config.ARCHIVE_DIR, filename), "wb") as fh:
+                fh.write(pdf)
+        except OSError as e:
+            current_app.logger.warning("could not save audit copy: %s", e)
+
+    if unsigned_mode:
+        activity_log.note(
+            detail="UNSIGNED audit content %s for local signing — %d courses, %d POOR, "
+                   "%d ATRs; sha256 %s…"
+                   % (filename, info["courses"], info["poor"], info["atrs"],
+                      info["fingerprint"][:12]),
+            cycle_code=c["code"], target_type="cycle", target_id=cycle_id)
+        flash("Downloaded the UNSIGNED audit content. Sign it on your laptop with "
+              "'python sign_audit.py %s' to seal and timestamp it. "
+              "SHA-256: %s" % (filename, info["fingerprint"]), "success")
+    else:
+        activity_log.note(
+            detail="Signed audit report %s — %d courses, %d POOR, %d ATRs; %s; sha256 %s…"
+                   % (filename, info["courses"], info["poor"], info["atrs"],
+                      info.get("timestamp", "no-tsa"), info["fingerprint"][:12]),
+            cycle_code=c["code"], target_type="cycle", target_id=cycle_id)
+        ts = info.get("timestamp", "no-tsa")
+        if ts == "timestamped":
+            flash("Audit report generated, digitally signed, and trusted-timestamped.",
+                  "success")
+        elif ts == "no-tsa":
+            flash("Audit report generated and digitally signed on the server. For the "
+                  "official copy with a trusted timestamp, use 'Sign on laptop'.",
+                  "success")
+        else:
+            flash("Audit report signed, but the server could not reach a timestamp "
+                  "authority (%s) — use 'Sign on laptop' for a timestamped copy. The "
+                  "signature and fingerprint are still valid." % ts, "warn")
+
+    return Response(pdf, mimetype="application/pdf",
+                    headers={"Content-Disposition": "attachment; filename=%s" % filename})
+
+
+# ============================================================================
+# PURGE & PROMOTE TO PRODUCTION  (v2.1)
+# ============================================================================
+# After the three testing levels pass, the professor does NOT want to create a
+# brand-new cycle (that would waste all the thorough test setup). Instead, THIS
+# same cycle is promoted to production by WIPING only its FEEDBACK artefacts and
+# resetting it to a clean, level-0 production run:
+#
+#   PURGED (gone):
+#     * the per-cycle DB contents — tokens, responses, answers, ATRs, ATR events,
+#       faculty tokens (recreated as a fresh empty file),
+#     * offering_classification rows for this cycle (the GOOD/POOR bands + marks
+#       derived from the test feedback).
+#   KEPT (untouched):
+#     * the Faculty Master, course offerings, the student roster/enrollment,
+#       templates, and the cycle's own configuration (email text, thresholds).
+#
+# Then the cycle flips to Production (test_level 0, is_test 0) and back to DRAFT so
+# the admin can open it and invite REAL students for the official run. A timestamped
+# backup of the pre-purge per-cycle DB is tucked into app/archive/ first, so even
+# this destructive step is recoverable. Protection: SINGLE admin + a typed
+# confirmation phrase (the professor's chosen safeguard), and it is audit-logged.
+# ----------------------------------------------------------------------------
+@admin_bp.route("/cycles/<int:cycle_id>/purge-to-production", methods=["POST"])
+def cycles_purge_to_production(cycle_id):
+    import shutil
+    import activity_log
+    conn = get_master()
+    c = conn.execute("SELECT * FROM cycle WHERE id=?", (cycle_id,)).fetchone()
+    if c is None:
+        conn.close(); flash("Cycle not found.", "error")
+        return redirect(url_for("admin.cycles_list"))
+
+    # SAFETY: require the exact typed phrase "PURGE <CODE>" (case-insensitive). A
+    # stray click can never wipe a cycle's feedback.
+    phrase = (request.form.get("confirm_phrase", "") or "").strip().upper()
+    if phrase != ("PURGE %s" % c["code"]).upper():
+        conn.close()
+        flash("Purge not confirmed — type exactly 'PURGE %s' to confirm." % c["code"],
+              "error")
+        return redirect(url_for("admin.cycles_list"))
+
+    # 1. Back up the current per-cycle DB (checkpoint WAL first) into archive/, then
+    #    recreate a FRESH EMPTY per-cycle file — this wipes tokens/responses/answers/
+    #    atr/atr_event/faculty_token in one clean move.
+    path = db.cycle_db_path(c["academic_year"], c["code"])
+    if os.path.exists(path):
+        cy = get_cycle(c["academic_year"], c["code"])
+        cy.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        cy.close()
+        os.makedirs(Config.ARCHIVE_DIR, exist_ok=True)
+        stamp = __import__("datetime").datetime.now().strftime("%Y%m%d-%H%M%S")
+        base = os.path.basename(path).rsplit(".db", 1)[0]
+        backup = os.path.join(Config.ARCHIVE_DIR, "%s__purged-%s.db" % (base, stamp))
+        shutil.move(path, backup)
+        for side in ("-wal", "-shm"):
+            if os.path.exists(path + side):
+                try:
+                    os.remove(path + side)
+                except OSError:
+                    pass
+    # Recreate the empty per-cycle DB (schema applied) so the production run starts clean.
+    fresh = _open_cycle_db(c); fresh.close()
+
+    # 2. Delete the test feedback's derived bands/marks in master.db for THIS cycle
+    #    (offerings/students/faculty/templates are deliberately left intact).
+    conn.execute("DELETE FROM offering_classification WHERE cycle_code=?", (c["code"],))
+
+    # 3. Promote to Production: level 0, not a test, and back to DRAFT so the admin
+    #    can open it and invite REAL students. Readiness stays as-is (setup unchanged).
+    conn.execute(
+        "UPDATE cycle SET test_level=0, is_test=0, is_open=0, status='DRAFT' "
+        "WHERE id=?", (cycle_id,))
+    conn.commit()
+    conn.close()
+
+    activity_log.note(
+        detail="PURGED test feedback & promoted %s to PRODUCTION (level 0)" % c["code"],
+        cycle_code=c["code"], target_type="cycle", target_id=cycle_id)
+    flash("Cycle %s purged and promoted to PRODUCTION. All test feedback, ATRs and "
+          "bands were cleared; faculty, offerings and the student roster were kept. "
+          "The cycle is DRAFT at Level 0 — open it to invite real students. "
+          "(A backup of the purged data was saved to the archive folder.)" % c["code"],
+          "success")
+    return redirect(url_for("admin.cycles_list"))
+
 
 @admin_bp.route("/cycles/<int:cycle_id>/archive", methods=["POST"])
 def cycles_archive(cycle_id):

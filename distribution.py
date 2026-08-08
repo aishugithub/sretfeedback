@@ -127,7 +127,9 @@ def _score(master, cycle, cycle_row, oid, dl_weight, cache):
     if oid in cache:
         return cache[oid]
     res = scoring.score_offering(master, cycle, oid, dl_weight)
-    if res is not None and cycle_row["is_test"]:
+    # Watermark at EVERY non-production level (1, 2, 3) — only a promoted level-0
+    # production cycle prints clean, official copies (emailer.is_watermarked).
+    if res is not None and emailer.is_watermarked(cycle_row):
         res["watermark"] = "TEST DATA — NOT FOR CIRCULATION"
     cache[oid] = res
     return res
@@ -290,10 +292,15 @@ def distribute_cycle(master, cycle, cycle_row, base_url=None, roles=None,
 
         # Where each teacher's mail goes:
         #   redirect_to set  -> that one test inbox (blank-email teachers included);
-        #   else real email  -> the teacher;
-        #   else test cycle  -> the cycle's test address (mailer also redirects);
-        #   else             -> skipped (live cycle with no address to mail).
-        test_fallback = Config.TEST_REDIRECT_EMAIL if cycle_row["is_test"] else None
+        #   else real email  -> the teacher (the mailer still re-routes it to the
+        #                       staff test inbox at Level 1, per the level table);
+        #   else, at Level 1 -> the staff test inbox, so blank-email teachers are
+        #                       STILL delivered for the tester to inspect;
+        #   else             -> skipped (nowhere real to send).
+        # The staff test inbox at Level 1 comes from the same routing table the
+        # mailer obeys, so distribution and the mailer can never disagree.
+        level = emailer.test_level_of(cycle_row)
+        test_fallback = emailer.redirect_target(level, "faculty")  # staff inbox @L1, else None
 
         messages = []
         for g in groups.values():
@@ -322,13 +329,16 @@ def distribute_cycle(master, cycle, cycle_row, base_url=None, roles=None,
         # Persist the tokens + ensured ATR rows written by _faculty_body, once.
         cycle.commit()
         if messages:
-            # If we're explicitly redirecting, bypass the mailer's own test-cycle
-            # redirect so mail lands at redirect_to (not the default test address).
-            send_is_test = bool(cycle_row["is_test"]) and not redirect_to
+            # If the admin typed an explicit redirect_to, mail already all points
+            # there — pass test_level=0 so the mailer does NOT redirect a second
+            # time. Otherwise hand the mailer the cycle's real level + the 'faculty'
+            # audience so it applies the §9 routing (real at L0/L2/L3, staff inbox
+            # at L1).
+            send_level = 0 if redirect_to else level
             res = emailer.send_batch(
                 Config.BASE_DIR,
                 "[AFS] Your feedback results — %s" % cycle_row["label"],
-                messages, is_test=send_is_test)
+                messages, test_level=send_level, audience="faculty")
             summary["faculty_emails"] = res["count"]
             summary["mode"] = res["mode"]
             summary["errors"] += res.get("errors", [])
@@ -366,10 +376,12 @@ def distribute_cycle(master, cycle, cycle_row, base_url=None, roles=None,
             leader_messages.append({"to": ldr["email"], "body": body})
 
     if leader_messages:
+        # Leaders route like faculty: real at Levels 0/2/3, staff test inbox at L1.
         res = emailer.send_batch(
             Config.BASE_DIR,
             "[AFS] Feedback roll-up — %s" % cycle_row["label"],
-            leader_messages, is_test=bool(cycle_row["is_test"]))
+            leader_messages, test_level=emailer.test_level_of(cycle_row),
+            audience="leader")
         summary["leader_emails"] = res["count"]
         summary["mode"] = summary["mode"] or res["mode"]
         summary["errors"] += res.get("errors", [])
