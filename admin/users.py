@@ -195,15 +195,114 @@ def _compute_scope(role, selected_codes):
         return ",".join(codes), None
 
     if role == rbac.ROLE_HOD:
-        # An HOD must map to exactly one real department (never ALL).
+        # v2.2 (§18): an HOD may now hold ONE OR MORE real departments — exactly
+        # like a Vice Dean's departmental subset — so the SAME person can head two
+        # program codes (e.g. 'E01,E05'). We still forbid the 'ALL' sentinel for an
+        # HOD (only VD/Dean are ever college-wide) and still require at least one
+        # real, KNOWN department code. The multi-code value is stored as the same
+        # CSV that rbac.allowed_dept_codes() already parses, so NO rbac change is
+        # needed — this branch only relaxes the old "exactly one" rule that used to
+        # block a shared HOD.
         real = [c for c in codes if c != rbac.SCOPE_ALL]
-        if len(real) != 1:
-            return "", "An HOD must be scoped to exactly one department."
-        if real[0] not in Config.DEPT_CODES:
-            return "", "Unknown department code: %s" % real[0]
-        return real[0], None
+        if not real:
+            return "", "An HOD must be scoped to at least one department."
+        unknown = [c for c in real if c not in Config.DEPT_CODES]
+        if unknown:
+            return "", "Unknown department code(s): %s" % ", ".join(unknown)
+        # `codes` is already upper-cased and de-duped (order preserved) above; join
+        # into the CSV rbac expects. One code -> "E01"; several -> "E01,E05".
+        return ",".join(real), None
 
     return "", "Unknown role: %s" % role
+
+
+# ----------------------------------------------------------------------------
+# _reconcile_hod_departments(master, user_id, role, scope) -> list[str] warnings
+# ----------------------------------------------------------------------------
+# v2.2 (§18.4): keep department.hod_user_id (the FORWARD pointer) in agreement
+# with app_user.scope_dept_ids (the REVERSE scope). This is the heart of the
+# shared-HOD change, so it is worth spelling out how the two facts relate:
+#
+#   * scope_dept_ids  — read by rbac.py to decide what an HOD may SEE / ENDORSE
+#                       (authorization). Already a CSV; already multi-dept.
+#   * department.hod_user_id — read by notifications._leader_email() to decide
+#                       WHO RECEIVES a department's ATR endorsement mail, and by
+#                       admin/status._hod_by_dept() to NAME the pending HOD
+#                       (routing + display).
+#
+# If we only widened the scope, a two-department HOD would SEE the second dept but
+# its endorsement mail would still go to whoever seed_leaders.py wired long ago.
+# So on every create/edit we make the ticked scope the single source of truth and
+# MIRROR it onto department.hod_user_id. Rules:
+#
+#   role == HOD : every dept in `scope` gets hod_user_id = this user; any dept the
+#                 user USED to hold but is no longer scoped for is detached
+#                 (-> NULL). A department has exactly ONE routing HOD, so claiming
+#                 a dept currently held by a DIFFERENT HOD REASSIGNS it here (the
+#                 professor's chosen "reassign + warn" policy): we point the dept
+#                 at this user AND strip that dept from the previous holder's own
+#                 scope, so authorization and routing stay in lock-step. Each such
+#                 reassignment is returned as a human warning string.
+#   role != HOD : a former HOD promoted to VD/Dean must no longer be any dept's
+#                 routing HOD, so we detach every dept still pointing at them.
+#
+# Does NOT commit — the caller owns the transaction, so the app_user write and
+# this mirror land together (they must never diverge).
+# ----------------------------------------------------------------------------
+def _reconcile_hod_departments(master, user_id, role, scope):
+    warnings = []
+
+    # The departments this user should own as routing HOD AFTER this save. Only an
+    # HOD owns departments; any other role owns none (wanted stays empty).
+    if role == rbac.ROLE_HOD:
+        wanted = [c.strip().upper() for c in (scope or "").split(",") if c.strip()]
+    else:
+        wanted = []
+
+    # 1. DETACH — any department this user currently holds but no longer should.
+    #    (Covers both "dropped a dept from an HOD's scope" and "role changed away
+    #    from HOD".) We NULL the pointer; notifications then treats that seat as
+    #    unfilled until an HOD is assigned, exactly as for a brand-new dept.
+    held_now = master.execute(
+        "SELECT code FROM department WHERE hod_user_id = ?", (user_id,)).fetchall()
+    for r in held_now:
+        if r["code"] not in wanted:
+            master.execute(
+                "UPDATE department SET hod_user_id = NULL WHERE code = ?",
+                (r["code"],))
+
+    # 2. CLAIM — point each wanted department at this user, reassigning from any
+    #    other HOD (and stripping it from that HOD's scope) so the "one dept = one
+    #    HOD" invariant holds on BOTH the routing and the authorization path.
+    for code in wanted:
+        row = master.execute(
+            "SELECT hod_user_id FROM department WHERE code = ?", (code,)).fetchone()
+        if row is None:
+            continue                      # unknown code (validated already; be safe)
+        prev = row["hod_user_id"]
+        if prev is not None and prev != user_id:
+            # Look up the previous holder to (a) word the warning and (b) remove
+            # this dept from THEIR scope so they no longer see it in rbac.
+            prev_row = master.execute(
+                "SELECT email, scope_dept_ids FROM app_user WHERE id = ?",
+                (prev,)).fetchone()
+            prev_email = prev_row["email"] if prev_row else ("user #%s" % prev)
+            warnings.append(
+                "Department %s was reassigned to this HOD (previously held by %s)."
+                % (code, prev_email))
+            if prev_row is not None:
+                kept = [c.strip().upper()
+                        for c in (prev_row["scope_dept_ids"] or "").split(",")
+                        if c.strip() and c.strip().upper() != code]
+                master.execute(
+                    "UPDATE app_user SET scope_dept_ids = ? WHERE id = ?",
+                    (",".join(kept), prev))
+        if prev != user_id:
+            master.execute(
+                "UPDATE department SET hod_user_id = ? WHERE code = ?",
+                (user_id, code))
+
+    return warnings
 
 
 # ----------------------------------------------------------------------------
@@ -298,6 +397,10 @@ def user_new():
         (email, name, role, scope, "admin:users_page"))
     new_id = master.execute(
         "SELECT id FROM app_user WHERE email = ?", (email,)).fetchone()["id"]
+    # v2.2 (§18.4): mirror the (possibly multi-department) scope onto
+    # department.hod_user_id so ATR routing/status agree with what this HOD sees.
+    # Runs inside the same transaction as the INSERT so the two never diverge.
+    warns = _reconcile_hod_departments(master, new_id, role, scope)
     _admin_log(master, "CREATE_USER", new_id)
     master.commit()
     master.close()
@@ -306,6 +409,10 @@ def user_new():
                       % (email, role, scope))
     flash("Leader created. Use “Send invite” to email them a set-password link.",
           "success")
+    # Surface any "reassigned from previous HOD" notes (the 'warn' half of the
+    # professor's reassign+warn policy) as their own messages.
+    for w in warns:
+        flash(w, "success")
     return redirect(url_for("admin.users_list"))
 
 
@@ -358,6 +465,11 @@ def user_edit(user_id):
         "UPDATE app_user SET name = ?, email = ?, role = ?, scope_dept_ids = ?, "
         "                    status = ? WHERE id = ?",
         (name, email, role, scope, status, user_id))
+    # v2.2 (§18.4): re-mirror scope onto department.hod_user_id. This also handles
+    # a role CHANGE away from HOD (the user is detached from every dept) and a
+    # scope that DROPS a department (that dept's pointer is cleared) — all inside
+    # the same transaction as the UPDATE above.
+    warns = _reconcile_hod_departments(master, user_id, role, scope)
     _admin_log(master, "EDIT_USER", user_id)
     master.commit()
     master.close()
@@ -365,6 +477,8 @@ def user_edit(user_id):
     activity_log.note(detail="Edited leader %s (%s, scope %s, %s)"
                       % (email, role, scope, status))
     flash("Saved.", "success")
+    for w in warns:
+        flash(w, "success")
     return redirect(url_for("admin.users_list"))
 
 

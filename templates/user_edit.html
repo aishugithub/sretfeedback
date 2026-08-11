@@ -46,7 +46,8 @@
         </select>
         <div class="muted" style="margin-top:4px">
           Dean = whole college · Vice Dean = whole college or a chosen set of
-          departments · HOD = exactly one department.
+          departments · HOD = one or more departments (v2.2 — the same person may
+          head several program codes).
         </div>
       </div>
 
@@ -66,8 +67,10 @@
           {% endfor %}
         </select>
         <div class="muted" style="margin-top:4px">
-          Hold Ctrl/Cmd to pick more than one. For an HOD choose a single
-          department. For the Dean the selection is ignored (always whole college).
+          Hold Ctrl/Cmd to pick more than one. An HOD may hold one or more
+          departments (a department can have only one HOD — assigning it here
+          moves it from any previous HOD). For the Dean the selection is ignored
+          (always whole college).
         </div>
       </div>
 

@@ -16,10 +16,16 @@
 #   * visible_offerings(master,user) — the ONLY sanctioned way to list offerings
 #                                      a leader may see; every read goes through it.
 #
-# SCOPE MODEL (Design §4). Each app_user carries `scope_dept_ids`:
-#     HOD        -> exactly one E-code, e.g. 'E01'
+# SCOPE MODEL (Design §4; extended in v2.2 §18). Each app_user carries
+# `scope_dept_ids`:
+#     HOD        -> one OR MORE E-codes, e.g. 'E01' or 'E01,E05' (v2.2: the same
+#                   person may head several program codes). Never the 'ALL'
+#                   sentinel — only VD/Dean are college-wide.
 #     Vice Dean  -> a subset of E-codes, or the sentinel 'ALL'
 #     Dean       -> 'ALL' (whole college)
+# The parsing below (allowed_dept_codes) has ALWAYS read this as a CSV set, so a
+# multi-department HOD needed no logic change here — only this note and the
+# relaxed validation in admin/users.py._compute_scope().
 # The sentinel string 'ALL' (or the DEAN role) means "no restriction". Anything
 # else is read as a comma-separated allow-list of department codes.
 #
