@@ -32,6 +32,9 @@ uploads_tmp/
 *.xls
 *.csv
 
+# --- Local safety backups made before edits (keep on laptop, never push) ----
+_claude_backup_*/
+
 # --- OS / editor cruft ------------------------------------------------------
 .DS_Store
 Thumbs.db

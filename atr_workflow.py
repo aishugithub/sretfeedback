@@ -269,6 +269,45 @@ def ensure_expected_atr(cycle, offering_id, cycle_code):
 
 
 # ----------------------------------------------------------------------------
+# ensure_hod_filed_atr(cycle, offering_id, cycle_code) -> atr_id
+# ----------------------------------------------------------------------------
+# EXTERNAL-FACULTY variant of ensure_expected_atr (the professor's rule, Aug 2026).
+# WHY THIS EXISTS: a course taught by the "External" placeholder faculty has NO
+# real person behind it — no email, no unique staff id, no login — so the normal
+# flow (EXPECTED, owner FACULTY, faculty files via a magic link) can never
+# complete: there is nobody to click "File ATR". Instead, for these courses the
+# HOD of the External department (EXT — Dr Arul Chezhian) writes the action note
+# himself and submits it upward to the Vice Dean.
+#
+# We realise that by creating the ATR ALREADY in PENDING_HOD state (owner = HOD),
+# skipping the EXPECTED/faculty stage entirely. From there the HOD's ordinary
+# ENDORSE (carrying his note as the ATR `body`) moves it to PENDING_VD — exactly
+# "HOD writes a note and submits to Vice Dean". No new FSM transition is needed:
+# PENDING_HOD --ENDORSE(HOD)--> PENDING_VD already exists in the §8.2 table, so
+# the whole safety guarantee (legal-move + correct-actor + audit row) is reused
+# untouched. Like ensure_expected_atr, this writes NO audit event on creation
+# (creation is not a transition); the first event will be the HOD's ENDORSE.
+# Idempotent via UNIQUE(offering_id): a second call returns the existing id.
+# Does NOT commit — the caller owns the transaction.
+# ----------------------------------------------------------------------------
+def ensure_hod_filed_atr(cycle, offering_id, cycle_code):
+    existing = get_atr_for_offering(cycle, offering_id)
+    if existing is not None:
+        return existing["id"]                       # never duplicate an ATR row
+    at = _now(cycle)                                 # one clock for created/updated
+    cur = cycle.execute(
+        "INSERT INTO atr (offering_id, cycle_code, state, current_owner_role, "
+        "                 body, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, NULL, ?, ?)",
+        # State starts at PENDING_HOD (owner HOD) — NOT EXPECTED — so it lands
+        # directly in the HOD's action queue with no faculty step in between.
+        (offering_id, cycle_code, STATE_PENDING_HOD, STATE_OWNER[STATE_PENDING_HOD],
+         at, at),
+    )
+    return cur.lastrowid
+
+
+# ----------------------------------------------------------------------------
 # apply_transition(cycle, atr_id, action, actor_role, actor_user_id=None,
 #                  comment=None, body=None) -> new_state
 # ----------------------------------------------------------------------------

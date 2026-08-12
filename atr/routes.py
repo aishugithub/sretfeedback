@@ -178,13 +178,22 @@ def atr_file_submit():
         return render_template("atr_invalid.html",
                                reason="This ATR can no longer be submitted (%s)." % e), 409
 
-    # Notify the HOD that an ATR now awaits them (reuse the §9 layer).
-    atr_row = atr_workflow.get_atr(cy, atr_id)
+    # Notify the reviewer that an ATR now awaits them (reuse the §9 layer).
     master = get_master()
+    offering = master.execute(
+        "SELECT * FROM offering WHERE id = ?", (offering_id,)).fetchone()
     try:
-        notifications.notify_state_change(
-            master, cy, cycle_row, atr_row,
-            atr_workflow.ACTION_SUBMIT, atr_row["state"])
+        # SELF-REVIEW policy: if the faculty who just filed is themselves the HOD
+        # (or VD/Dean) who would review this ATR, auto-forward past their own level
+        # first, so nobody endorses their own report. When it moves the ATR,
+        # escalate_past_self already notified the true next reviewer — so we only
+        # send the ordinary "awaits you" notice when NO self-skip happened.
+        skipped = escalate_past_self(master, cy, cycle_row, offering, atr_id)
+        if not skipped:
+            atr_row = atr_workflow.get_atr(cy, atr_id)
+            notifications.notify_state_change(
+                master, cy, cycle_row, atr_row,
+                atr_workflow.ACTION_SUBMIT, atr_row["state"])
     finally:
         master.close(); cy.close()
 
@@ -369,6 +378,7 @@ def atr_dashboard():
             selected = cycles[0]
 
     rows = []
+    all_offerings = []          # HOD "see ALL staff reports" (all bands, not just POOR)
     if selected is not None and os.path.exists(
             db.cycle_db_path(selected["academic_year"], selected["code"])):
         # Scope: only offerings this leader may see (Module 1 RBAC).
@@ -384,6 +394,30 @@ def atr_dashboard():
                     "atr": a, "offering": o,
                     "mine": a["current_owner_role"] == leader["role"],
                 })
+
+        # ---- HOD "see ALL their staff reports" (professor's rule, Aug 2026) ----
+        # The ATR queue above shows only POOR courses (an ATR exists only for those).
+        # The professor wants the HOD to also see EVERY course of every staff member
+        # in their department — GOOD, POOR or Insufficient — with its report. We
+        # reuse the SAME rbac.visible_offerings scope (so no leak past their dept),
+        # attach each offering's band/score from offering_classification, and note
+        # whether an ATR exists. The template links each row to the report download
+        # route (atr.atr_report), which re-checks scope on every hit.
+        atr_oids = {a["offering_id"] for a in atrs}
+        cls_rows = master.execute(
+            "SELECT offering_id, band, overall_score, n_responses "
+            "FROM offering_classification WHERE cycle_code = ?",
+            (selected["code"],)).fetchall()
+        cls_map = {r["offering_id"]: r for r in cls_rows}
+        for o in visible:
+            info = cls_map.get(o["id"])
+            all_offerings.append({
+                "offering": o,
+                "band": info["band"] if info else None,
+                "overall_score": info["overall_score"] if info else None,
+                "n_responses": info["n_responses"] if info else None,
+                "has_atr": o["id"] in atr_oids,
+            })
 
     # (Module 5) EXTERNAL / UNASSIGNED sections — only for college-wide leaders
     # (Vice Dean, Dean; allowed_dept_codes is None). These are offerings whose
@@ -418,9 +452,91 @@ def atr_dashboard():
         atr_workflow.ROLE_VICE_DEAN, atr_workflow.ROLE_DEAN)
     return render_template("atr_dashboard.html", leader=leader, cycles=cycles,
                            selected=selected, rows=rows,
+                           all_offerings=all_offerings,
                            external_rows=external_rows,
                            unassigned_rows=unassigned_rows,
                            my_count=my_count, can_endorse_all=can_endorse_all)
+
+
+# ----------------------------------------------------------------------------
+# GET /atr/report/<cycle_code>/<offering_id>.<fmt>  —  leader report download
+# ----------------------------------------------------------------------------
+# The HOD "see ALL their staff reports" download (professor's rule, Aug 2026).
+# This is the leader-side twin of admin/reports.report_one: it builds the exact
+# same Excel/PDF from the exact same scoring stack, but is gated by the §4 RBAC
+# choke-point instead of the admin login — a HOD can download the report for any
+# offering in THEIR department (all bands, not just POOR), and never one outside
+# it. Scope is checked via rbac.in_scope against the FACULTY's home department
+# (effective_dept), so it can never drift from what visible_offerings lists.
+# fmt is 'xlsx' or 'pdf'.
+# ----------------------------------------------------------------------------
+@atr_bp.route("/atr/report/<cycle_code>/<int:offering_id>.<fmt>")
+@leader_required
+def atr_report(cycle_code, offering_id, fmt):
+    if fmt not in ("xlsx", "pdf"):
+        abort(404)
+    leader = _current_leader()
+    master = get_master()
+    cyc = _cycle_by_code(master, cycle_code)
+    if cyc is None:
+        master.close(); abort(404)
+
+    # RBAC: resolve the offering's effective department (the faculty's home dept)
+    # and refuse if this leader may not see it. This is the SAME predicate the
+    # dashboard list uses, so "listed ⇒ downloadable" holds and nothing else is.
+    off = master.execute(
+        "SELECT o.id, o.faculty_id, f.home_dept_code AS eff_dept "
+        "FROM offering o LEFT JOIN faculty f ON f.emp_no = o.faculty_id "
+        "WHERE o.id = ?", (offering_id,)).fetchone()
+    if off is None:
+        master.close(); abort(404)
+    if not rbac.in_scope(leader, off["eff_dept"]):
+        master.close(); abort(403)
+
+    # Build the report exactly as the admin route does: score the offering, then
+    # render Excel or PDF to a temp file and stream it. (Local imports keep the
+    # blueprint's import-time surface small and match admin/reports.py's approach.)
+    import io
+    import tempfile
+    import scoring
+    import report_export
+    from flask import send_file
+
+    cy = _open_cycle_db(cyc)
+    dl_weight = scoring.get_discussed_late_weight(master)
+    result = scoring.score_offering(master, cy, offering_id, dl_weight)
+    cy.close(); master.close()
+
+    # Test cycles stamp the same "TEST DATA" watermark the admin PDF uses (§9.1).
+    if result is not None and cyc["is_test"]:
+        result["watermark"] = "TEST DATA — NOT FOR CIRCULATION"
+    if result is None:
+        flash("Nothing to report for that offering (uncategorised or no responses).",
+              "error")
+        return redirect(url_for("atr.atr_dashboard", cycle=cycle_code))
+
+    suffix = ".xlsx" if fmt == "xlsx" else ".pdf"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.close()
+    if fmt == "xlsx":
+        report_export.build_excel_report(result, tmp.name)
+        mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        report_export.build_pdf_report(result, tmp.name)
+        mimetype = "application/pdf"
+    download_name = report_export.safe_filename(result, fmt)
+    with open(tmp.name, "rb") as fh:
+        data = fh.read()
+    os.unlink(tmp.name)                       # never leave temp files behind
+
+    # ACTIVITY LOG (Module 3): record WHO (the leader, stamped by the hook) viewed
+    # WHICH report — so HOD report access is auditable just like admin downloads.
+    import activity_log
+    activity_log.note(detail=f"{download_name} ({fmt.upper()}) — HOD/leader view",
+                      cycle_code=cycle_code, target_type="offering",
+                      target_id=offering_id)
+    return send_file(io.BytesIO(data), mimetype=mimetype,
+                     as_attachment=True, download_name=download_name)
 
 
 # ----------------------------------------------------------------------------
@@ -499,11 +615,19 @@ def atr_review(cycle_code, atr_id):
             role = u["role"] if u else None
         events_view.append({"action": e["action"], "comment": e["comment"],
                             "at": e["at"], "actor_label": label, "actor_role": role})
+    # EXTERNAL-FACULTY rule: is this ATR for a course taught by the "External"
+    # placeholder (faculty home dept 'EXT')? If so, there is no faculty narrative;
+    # instead the HOD types his own action note here and endorses it up to the VD.
+    # The template uses this flag to show a "HOD note" textarea on the Endorse form.
+    ext_row = master.execute(
+        "SELECT home_dept_code FROM faculty WHERE emp_no = ?",
+        (offering["faculty_id"],)).fetchone()
+    is_external = bool(ext_row) and (ext_row["home_dept_code"] == "EXT")
     master.close(); cy.close()
     actions = atr_workflow.legal_actions(atr_row["state"], leader["role"])
     return render_template("atr_review.html", leader=leader, cycle=cycle_row,
                            atr=atr_row, offering=offering, events=events_view,
-                           actions=actions)
+                           actions=actions, is_external=is_external)
 
 
 # ----------------------------------------------------------------------------
@@ -522,6 +646,12 @@ def atr_act(cycle_code, atr_id, action):
         abort(404)
     leader = _current_leader()
     comment = (request.form.get("comment", "") or "").strip() or None
+    # EXTERNAL-FACULTY rule: on an ENDORSE the HOD may supply a `body` (his action
+    # note) — this is how an External-department ATR gets its narrative, since no
+    # faculty ever filed one. It is read here and passed through to apply_transition
+    # only for ENDORSE; on a normal ATR the form has no `body` field, so it stays
+    # None and the faculty's existing narrative is preserved untouched.
+    hod_note = (request.form.get("body", "") or "").strip() or None
 
     cycle_row, cy, atr_row = _load_atr(cycle_code, atr_id)
     if atr_row is None:
@@ -543,7 +673,11 @@ def atr_act(cycle_code, atr_id, action):
     try:
         new_state = atr_workflow.apply_transition(
             cy, atr_id, action, leader["role"],
-            actor_user_id=leader["id"], comment=comment)
+            actor_user_id=leader["id"], comment=comment,
+            # Only an ENDORSE may carry the HOD's note as the ATR body (external
+            # faculty). A RETURN never rewrites the body; apply_transition also
+            # leaves body untouched when this is None (the normal case).
+            body=(hod_note if action == atr_workflow.ACTION_ENDORSE else None))
         cy.commit()
     except atr_workflow.IllegalTransition as e:
         cy.rollback(); master.close(); cy.close()
@@ -578,6 +712,11 @@ def atr_act(cycle_code, atr_id, action):
                 and new_state == atr_workflow.STATE_CLOSED
                 and (leader["role"] or "").upper() == atr_workflow.ROLE_DEAN):
             recorded = _maybe_mark_recorded(master, cycle_row, cy)
+        # SELF-REVIEW policy: if this endorse advanced the ATR to a level whose
+        # reviewer is the course's OWN faculty (e.g. a teaching Vice Dean now at
+        # PENDING_VD), auto-forward past them as well. No-op in the ordinary case.
+        if action == atr_workflow.ACTION_ENDORSE:
+            escalate_past_self(master, cy, cycle_row, offering, atr_id)
     finally:
         master.close(); cy.close()
 
@@ -614,6 +753,84 @@ def _maybe_mark_recorded(master, cycle_row, cy):
         master.commit()
         return True
     return False
+
+
+# ----------------------------------------------------------------------------
+# _faculty_leader(master, offering) -> app_user Row | None
+# ----------------------------------------------------------------------------
+# The person teaching this course, IF they also hold a leadership role in the
+# endorsement chain. We resolve the teacher's institutional email from the
+# Faculty Master (same lookup distribution/notifications use) and match it — case-
+# insensitively — to an ACTIVE app_user with a leader role. Returns None when the
+# teacher holds no leadership role (the ordinary case) or has no email (external).
+# ----------------------------------------------------------------------------
+def _faculty_leader(master, offering):
+    email = notifications.faculty_email_for(master, offering)
+    if not email:
+        return None
+    return master.execute(
+        "SELECT * FROM app_user WHERE lower(email) = lower(?) AND status = 'active' "
+        "AND role IN ('HOD','VICE_DEAN','DEAN')", (email,)).fetchone()
+
+
+# ----------------------------------------------------------------------------
+# escalate_past_self(master, cy, cycle_row, offering, atr_id) -> int (skips)
+# ----------------------------------------------------------------------------
+# SELF-REVIEW policy (the professor's rule, Aug 2026): nobody may endorse their
+# OWN ATR. A HOD who also teaches, a Vice Dean who teaches, a Dean who teaches —
+# when one of their own courses lands POOR and they file an ATR, it must not stop
+# at the level THEY occupy. This helper auto-forwards the ATR past every pending
+# level whose reviewer is the course's own faculty:
+#     teaching HOD   : PENDING_HOD  -> PENDING_VD   (Vice Dean reviews)
+#     teaching VD     : PENDING_VD   -> PENDING_DEAN (Dean reviews)
+#     teaching Dean   : PENDING_DEAN -> CLOSED       (auto-closed; no higher authority)
+# Each hop is a REAL, legal ENDORSE through the pure state machine (so it is
+# audited exactly like a manual endorse), attributed to that leader, carrying a
+# clear "self-review skipped" note. We only skip a HOD level when the HOD's scope
+# actually covers this course's department (a HOD teaching OUTSIDE the dept they
+# head is reviewed normally by that dept's real HOD). After any skip we notify the
+# true next reviewer and, if the Dean's own ATR auto-closed, run the RECORDED gate.
+# Returns how many levels were skipped (0 = ordinary case, nothing changed).
+# ----------------------------------------------------------------------------
+def escalate_past_self(master, cy, cycle_row, offering, atr_id):
+    leader = _faculty_leader(master, offering)
+    if leader is None:
+        return 0                                   # teacher holds no leader role
+    role = (leader["role"] or "").upper()
+    home_dept = rbac.effective_dept(master, offering)   # the course's owning dept
+    skipped = 0
+    for _ in range(4):                             # ≤3 levels; bound guards loops
+        atr = atr_workflow.get_atr(cy, atr_id)
+        owner = (atr["current_owner_role"] or "").upper()
+        if not owner:
+            break                                  # CLOSED — nothing pending
+        if owner != role:
+            break                                  # the pending reviewer is someone else
+        # A HOD only self-reviews within their own department's scope.
+        if owner == atr_workflow.ROLE_HOD and not rbac.in_scope(leader, home_dept):
+            break
+        # Advance one level via a legal, audited ENDORSE attributed to this leader.
+        atr_workflow.apply_transition(
+            cy, atr_id, atr_workflow.ACTION_ENDORSE, leader["role"],
+            actor_user_id=leader["id"],
+            comment="Auto-forwarded — the reviewer at this level is the course "
+                    "faculty; self-review skipped per policy.")
+        skipped += 1
+    if skipped:
+        cy.commit()
+        atr_after = atr_workflow.get_atr(cy, atr_id)
+        # Notify the REAL next reviewer (or record the closure). Best-effort: a mail
+        # hiccup must not roll back a valid, audited state change.
+        try:
+            notifications.notify_state_change(
+                master, cy, cycle_row, atr_after,
+                atr_workflow.ACTION_ENDORSE, atr_after["state"],
+                reason="Automatic escalation: the skipped reviewer is the course faculty.")
+        except Exception:
+            pass
+        if atr_after["state"] == atr_workflow.STATE_CLOSED:
+            _maybe_mark_recorded(master, cycle_row, cy)
+    return skipped
 
 
 # ----------------------------------------------------------------------------

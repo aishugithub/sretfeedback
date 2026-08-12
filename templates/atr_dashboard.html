@@ -75,6 +75,42 @@
   </table>
   {% endif %}
 
+  {# ---- ALL staff reports (professor's rule): every in-scope course, all bands.
+       The queue above is only the POOR courses that need an ATR; this section
+       lets the leader open the feedback report for EVERY course of every staff
+       member in their scope — GOOD, POOR or Insufficient. Each link hits
+       atr.atr_report, which re-checks RBAC scope on every request. ---- #}
+  {% if all_offerings %}
+    <h3 style="margin-top:26px">All staff reports — {{ all_offerings|length }} course(s) in your scope</h3>
+    <p class="muted">Every course taught by your department's faculty this cycle,
+    regardless of band. Download any report as Excel or PDF.</p>
+    <table>
+      <tr><th>Programme code</th><th>Course</th><th>Faculty</th><th>Band</th>
+          <th>Overall</th><th>Responses</th><th>Report</th></tr>
+      {% for r in all_offerings %}
+        <tr>
+          <td>{{ r.offering.dept_code }}</td>
+          <td>{{ r.offering.course_code }}<br><span class="muted">{{ r.offering.course_name }}</span></td>
+          <td>{{ r.offering.faculty or r.offering.faculty_email }}</td>
+          <td>
+            {% if r.band %}
+              <span class="pill {{ 'warn' if r.band=='POOR' else 'ok' }}">{{ r.band }}</span>
+              {% if r.has_atr %}<span class="pill">ATR</span>{% endif %}
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+          <td>{{ '%.2f'|format(r.overall_score) if r.overall_score is not none else '—' }}</td>
+          <td>{{ r.n_responses if r.n_responses is not none else '—' }}</td>
+          <td>
+            {% if r.band %}
+              <a class="btn small" href="{{ url_for('atr.atr_report', cycle_code=selected.code, offering_id=r.offering.id, fmt='pdf') }}">PDF</a>
+              <a class="btn small grey" href="{{ url_for('atr.atr_report', cycle_code=selected.code, offering_id=r.offering.id, fmt='xlsx') }}">Excel</a>
+            {% else %}<span class="muted">no responses</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+
   {# ---- Module 5: courses with NO HOD, surfaced only to college-wide leaders ---- #}
   {% if external_rows %}
     <h3 style="margin-top:26px">External faculty — no HOD review</h3>

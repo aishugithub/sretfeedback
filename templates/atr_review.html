@@ -25,17 +25,44 @@
       <tr><th>State</th><td><span class="pill warn">{{ atr.state }}</span></td></tr>
     </table>
 
-    <h3>Faculty's action-taken narrative</h3>
-    <p style="white-space:pre-wrap">{{ atr.body or '(not yet filed)' }}</p>
+    {% if is_external %}
+      {# EXTERNAL-FACULTY rule: no real teacher filed a narrative. The External
+         department HOD writes his own action note below and submits it up to the
+         Vice Dean. We show any note already saved, else a clear placeholder. #}
+      <div class="flash" style="background:#eef;border-left:4px solid #557">
+        <b>External faculty course.</b> There is no faculty member to file an ATR.
+        As the External-department HOD, write your action note below and endorse it
+        to the Vice Dean.
+      </div>
+      <h3>HOD action note (external)</h3>
+      <p style="white-space:pre-wrap">{{ atr.body or '(no note written yet)' }}</p>
+    {% else %}
+      <h3>Faculty's action-taken narrative</h3>
+      <p style="white-space:pre-wrap">{{ atr.body or '(not yet filed)' }}</p>
+    {% endif %}
 
     {% if actions %}
       <h3>Your decision</h3>
       {% if 'ENDORSE' in actions %}
-        <form class="inline" method="post"
-              action="{{ url_for('atr.atr_act', cycle_code=cycle.code, atr_id=atr.id, action='endorse') }}">
-          <input type="hidden" name="comment" value="">
-          <button class="btn" type="submit">Endorse ▲</button>
-        </form>
+        {% if is_external %}
+          {# For an external ATR the endorse form carries a `body` textarea so the
+             HOD's note becomes the ATR narrative as it moves to the Vice Dean. #}
+          <form method="post"
+                action="{{ url_for('atr.atr_act', cycle_code=cycle.code, atr_id=atr.id, action='endorse') }}">
+            <input type="hidden" name="comment" value="">
+            <div class="field">
+              <label for="body">Your action note (submitted to the Vice Dean)</label>
+              <textarea id="body" name="body" rows="4" required>{{ atr.body or '' }}</textarea>
+            </div>
+            <button class="btn" type="submit">Submit note &amp; endorse ▲</button>
+          </form>
+        {% else %}
+          <form class="inline" method="post"
+                action="{{ url_for('atr.atr_act', cycle_code=cycle.code, atr_id=atr.id, action='endorse') }}">
+            <input type="hidden" name="comment" value="">
+            <button class="btn" type="submit">Endorse ▲</button>
+          </form>
+        {% endif %}
       {% endif %}
       {% if 'RETURN' in actions %}
         <form method="post" style="margin-top:12px"

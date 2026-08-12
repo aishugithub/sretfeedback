@@ -165,6 +165,24 @@ def _combined_pdf(results, faculty_label, cycle_row):
 # it pending even before the teacher clicks. The per-course report PDFs are attached
 # by the caller. Writes tokens/atr rows to the per-cycle DB; the caller commits.
 # ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# _is_external_offering(master, offering_id) -> bool   (external-faculty rule)
+# ----------------------------------------------------------------------------
+# True when this offering is taught by the "External" placeholder faculty, i.e.
+# the faculty's home department is the External dept code 'EXT'. These courses
+# have no real person to file an ATR, so they follow the HOD-filed path
+# (ensure_hod_filed_atr) instead of the normal faculty EXPECTED path, and they
+# never get a faculty results email or File-ATR link (there is no email). We
+# resolve it through the Faculty Master by emp-no, exactly like effective_dept.
+# ----------------------------------------------------------------------------
+def _is_external_offering(master, offering_id):
+    row = master.execute(
+        "SELECT f.home_dept_code AS hd "
+        "FROM offering o LEFT JOIN faculty f ON f.emp_no = o.faculty_id "
+        "WHERE o.id = ?", (offering_id,)).fetchone()
+    return bool(row) and (row["hd"] == "EXT")
+
+
 def _faculty_body(master, cycle, cycle_row, faculty_email, oids, classified,
                   base, intro):
     lines = [intro.strip() if (intro and intro.strip()) else "Dear Faculty,", ""]
@@ -175,13 +193,25 @@ def _faculty_body(master, cycle, cycle_row, faculty_email, oids, classified,
         lines.append(_band_line(master, oid, cls))
         if cls["band"] == classification.BAND_POOR:
             any_poor = True
-            # Ensure the ATR row exists (shows on the HOD dashboard immediately) and
-            # mint a one-time File-ATR link, placed right under this course.
-            atr_workflow.ensure_expected_atr(cycle, oid, cycle_row["code"])
-            jti, _exp = faculty_tokens.issue(cycle, oid, faculty_email,
-                                             purpose=faculty_tokens.PURPOSE_ATR_FILE)
-            lines.append("      → ACTION REQUIRED — file your ATR: %s"
-                         % atr_file_url(base, jti))
+            # EXTERNAL-FACULTY rule: a course taught by the "External" placeholder
+            # has no real teacher to file an ATR. Create the ATR in the HOD-filed
+            # path (PENDING_HOD, owner HOD) and add NO faculty File-ATR link — the
+            # EXT HOD writes the note and submits it upward instead. (In production
+            # external faculty have a blank email so _faculty_body never runs for
+            # them; this guard also covers the test-redirect case, where blank-email
+            # teachers ARE included, so we still never mint them a dead link.)
+            if _is_external_offering(master, oid):
+                atr_workflow.ensure_hod_filed_atr(cycle, oid, cycle_row["code"])
+                lines.append("      → EXTERNAL faculty: HOD will file the ATR note.")
+            else:
+                # Normal path: ensure the EXPECTED ATR row exists (shows on the HOD
+                # dashboard immediately) and mint a one-time File-ATR link, placed
+                # right under this course.
+                atr_workflow.ensure_expected_atr(cycle, oid, cycle_row["code"])
+                jti, _exp = faculty_tokens.issue(cycle, oid, faculty_email,
+                                                 purpose=faculty_tokens.PURPOSE_ATR_FILE)
+                lines.append("      → ACTION REQUIRED — file your ATR: %s"
+                             % atr_file_url(base, jti))
     lines += ["", "Your feedback report for all your courses is attached as a single PDF."]
     if any_poor:
         lines.append("Course(s) marked [POOR] require an Action-Taken-Report (ATR) "
@@ -264,6 +294,19 @@ def distribute_cycle(master, cycle, cycle_row, base_url=None, roles=None,
     summary["classified"] = len(classified)
     if not classified:
         return summary  # nothing scored/banded → nothing to distribute
+
+    # ---- 0b. EXTERNAL-FACULTY ATRs (professor's rule) -----------------------
+    # Independently of the faculty fan-out below (which may be skipped, or may
+    # never run for a blank-email External teacher in production), make sure every
+    # POOR course taught by the External placeholder has a HOD-filed ATR waiting in
+    # the EXT HOD's queue (PENDING_HOD). This guarantees the External department's
+    # poor courses always reach Dr Arul Chezhian for his note → Vice Dean, whether
+    # or not any email goes out. Idempotent, so re-running distribution is safe.
+    for oid in classified:
+        if (classified[oid]["band"] == classification.BAND_POOR
+                and _is_external_offering(master, oid)):
+            atr_workflow.ensure_hod_filed_atr(cycle, oid, cycle_code)
+    cycle.commit()
 
     # ---- 1. FACULTY fan-out (one email each, ONE combined PDF, inline ATR) ----
     if atr_workflow.ROLE_FACULTY in want:
