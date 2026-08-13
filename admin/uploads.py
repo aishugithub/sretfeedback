@@ -124,14 +124,22 @@ def enrollment_upload():
         os.makedirs(_TMP_DIR, exist_ok=True)
         offering_id = int(request.form.get("offering_id", "0") or 0)
 
+        # ---- CONFIRM & COMMIT -------------------------------------------------
+        # The dry run passed either pasted TEXT (carried back in the hidden
+        # `staged_text` field) or a staged FILE (`staged`). Commit whichever it was.
         if request.form.get("confirm") == "yes":
-            staged = request.form.get("staged", "")
-            path = os.path.join(_TMP_DIR, os.path.basename(staged))
-            if not staged or not os.path.exists(path):
-                conn.close(); flash("Staged file missing — re-upload.", "error")
-                return redirect(url_for("admin.enrollment_upload", cycle=cycle_code))
-            summary = enrollment_importer.import_enrollment(
-                path, conn, cycle_code, offering_id, commit=True)
+            staged_text = request.form.get("staged_text", "")
+            if staged_text.strip():
+                summary = enrollment_importer.import_enrollment_text(
+                    staged_text, conn, cycle_code, offering_id, commit=True)
+            else:
+                staged = request.form.get("staged", "")
+                path = os.path.join(_TMP_DIR, os.path.basename(staged))
+                if not staged or not os.path.exists(path):
+                    conn.close(); flash("Staged data missing — re-enter.", "error")
+                    return redirect(url_for("admin.enrollment_upload", cycle=cycle_code))
+                summary = enrollment_importer.import_enrollment(
+                    path, conn, cycle_code, offering_id, commit=True)
             conn.close()
             # ACTIVITY LOG (Module 3): record the committed enrollment + its count.
             import activity_log
@@ -141,24 +149,43 @@ def enrollment_upload():
             flash(f"Enrollment committed: {summary['inserted']} students.", "success")
             return redirect(url_for("admin.enrollment_upload", cycle=cycle_code))
 
+        # ---- DRY RUN (validate before committing) -----------------------------
+        if not offering_id:
+            conn.close(); flash("Pick a course / faculty group first.", "error")
+            return redirect(url_for("admin.enrollment_upload", cycle=cycle_code))
+
+        pasted = (request.form.get("pasted", "") or "").strip()
         file = request.files.get("file")
-        if not file or file.filename == "" or not offering_id:
-            conn.close(); flash("Pick a course/faculty group and a file.", "error")
+        if pasted:
+            # PASTE path (preferred): validate the pasted register numbers and echo
+            # them back in a hidden field so Confirm can commit the exact same set.
+            summary = enrollment_importer.import_enrollment_text(
+                pasted, conn, cycle_code, offering_id, commit=False)
+            electives = _elective_offerings(conn, cycle_code)
+            conn.close()
+            return render_template("enrollment_upload.html", summary=summary,
+                                   cycle_code=cycle_code, electives=electives,
+                                   selected=offering_id, staged=None, staged_text=pasted)
+        elif file and file.filename:
+            # FILE path (still supported as a fallback).
+            staged_name = f"enr_{cycle_code}_{offering_id}_{os.path.basename(file.filename)}"
+            path = os.path.join(_TMP_DIR, staged_name)
+            file.save(path)
+            try:
+                summary = enrollment_importer.import_enrollment(
+                    path, conn, cycle_code, offering_id, commit=False)
+            except Exception as e:
+                conn.close(); flash(f"Could not read the workbook: {e}", "error")
+                return redirect(url_for("admin.enrollment_upload", cycle=cycle_code))
+            electives = _elective_offerings(conn, cycle_code)
+            conn.close()
+            return render_template("enrollment_upload.html", summary=summary,
+                                   cycle_code=cycle_code, electives=electives,
+                                   selected=offering_id, staged=staged_name, staged_text=None)
+        else:
+            conn.close()
+            flash("Paste the register numbers (or choose a file).", "error")
             return redirect(url_for("admin.enrollment_upload", cycle=cycle_code))
-        staged_name = f"enr_{cycle_code}_{offering_id}_{os.path.basename(file.filename)}"
-        path = os.path.join(_TMP_DIR, staged_name)
-        file.save(path)
-        try:
-            summary = enrollment_importer.import_enrollment(
-                path, conn, cycle_code, offering_id, commit=False)
-        except Exception as e:
-            conn.close(); flash(f"Could not read the workbook: {e}", "error")
-            return redirect(url_for("admin.enrollment_upload", cycle=cycle_code))
-        electives = _elective_offerings(conn, cycle_code)
-        conn.close()
-        return render_template("enrollment_upload.html", summary=summary,
-                               cycle_code=cycle_code, electives=electives,
-                               selected=offering_id, staged=staged_name)
 
     electives = _elective_offerings(conn, cycle_code)
     # Archived cycles are excluded from the upload/readiness pickers.
@@ -168,16 +195,22 @@ def enrollment_upload():
     conn.close()
     return render_template("enrollment_upload.html", summary=None,
                            cycle_code=cycle_code, cycles=cycles,
-                           electives=electives, selected=None, staged=None)
+                           electives=electives, selected=None, staged=None,
+                           staged_text=None)
 
 
 def _elective_offerings(conn, cycle_code):
-    """Elective teaching assignments for the dropdown (course + faculty + count)."""
+    """Elective teaching assignments for the dropdown. Includes programme code,
+    year and section so the SAME course_code taught by the SAME faculty to two
+    different sections is unambiguous (the admin picks the exact offering, never
+    a guess). Ordered so the list reads programme -> year -> section -> course."""
     return conn.execute(
         "SELECT o.id, o.course_code, o.course_name, o.elective_basket, o.faculty, "
+        "       o.dept_code, o.year_of_study, o.section, "
         "(SELECT COUNT(*) FROM enrollment e WHERE e.offering_id=o.id) AS enrolled "
         "FROM offering o WHERE o.cycle_code=? AND o.course_type='ELECTIVE' "
-        "ORDER BY o.course_code, o.faculty", (cycle_code,)).fetchall()
+        "ORDER BY o.dept_code, o.year_of_study, o.section, o.course_code, o.faculty",
+        (cycle_code,)).fetchall()
 
 
 # ============================================================================

@@ -5,7 +5,7 @@
 
   <div class="card">
     <h3 style="margin-top:0">Elective enrollment — cycle {{ cycle_code }}</h3>
-    <p class="muted">Pick the elective course + faculty group, then upload a single column of register numbers. Every student must be in this cycle's roster and cannot appear in another faculty's group for the same course.</p>
+    <p class="muted">Pick the exact elective course + faculty group (the label shows programme, year &amp; section so two sections of the same course aren't confused), then <b>paste the register numbers</b> — one per line, straight from your Excel column. Every student must be in this cycle's roster and cannot appear in another faculty's group for the same course.</p>
     {% if cycles %}
       <form class="inline" method="get" action="{{ url_for('admin.enrollment_upload') }}">
         <label class="muted">Cycle
@@ -18,15 +18,31 @@
     {% if electives %}
       <form method="post" enctype="multipart/form-data" action="{{ url_for('admin.enrollment_upload', cycle=cycle_code) }}">
         <div class="field"><label>Course / faculty group</label>
-          <select name="offering_id" required>
+          <select name="offering_id" required style="min-width:520px">
             <option value="">— choose —</option>
             {% for e in electives %}
               <option value="{{ e.id }}" {{ 'selected' if selected==e.id }}>
-                {{ e.course_code }} · {{ e.elective_basket }} · {{ e.faculty }} ({{ e.enrolled }} enrolled)
+                [{{ e.dept_code }} · Yr {{ e.year_of_study }} · Sec {{ e.section or 'NA' }}]
+                {{ e.course_code }} — {{ e.course_name }} · {{ e.elective_basket }}
+                · {{ e.faculty }} ({{ e.enrolled }} enrolled)
               </option>
             {% endfor %}
           </select></div>
-        <div class="field"><input type="file" name="file" accept=".xlsx" required></div>
+
+        <div class="field">
+          <label>Register numbers — paste one per line (copy the column from Excel)</label>
+          <textarea name="pasted" rows="10" style="width:100%;font-family:monospace"
+                    placeholder="E0324052&#10;E0324053&#10;E0324054&#10;…">{{ staged_text or '' }}</textarea>
+        </div>
+
+        <details style="margin:6px 0 12px">
+          <summary class="muted">…or upload an .xlsx file instead</summary>
+          <div class="field" style="margin-top:8px">
+            <input type="file" name="file" accept=".xlsx">
+            <div class="muted">Single column of register numbers, optional header.</div>
+          </div>
+        </details>
+
         <button class="btn" type="submit">Validate (dry run)</button>
       </form>
     {% else %}
@@ -51,7 +67,9 @@
         <form method="post" action="{{ url_for('admin.enrollment_upload', cycle=cycle_code) }}">
           <input type="hidden" name="confirm" value="yes">
           <input type="hidden" name="offering_id" value="{{ selected }}">
-          <input type="hidden" name="staged" value="{{ staged }}">
+          <input type="hidden" name="staged" value="{{ staged or '' }}">
+          {# carry the pasted register numbers through to the commit unchanged #}
+          <textarea name="staged_text" style="display:none">{{ staged_text or '' }}</textarea>
           <button class="btn" type="submit">Confirm &amp; commit enrollment</button>
         </form>
       {% endif %}

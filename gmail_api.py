@@ -195,6 +195,18 @@ def _build_raw_message(from_addr, to_addr, subject, body, attachments=None):
 # Returns the Gmail message id on success; raises RuntimeError on failure so the
 # caller can record a per-recipient error and carry on with the rest of the batch.
 # ----------------------------------------------------------------------------
+# Transient HTTP statuses worth RETRYING (vs. a hard failure we surface at once).
+#   429  = rate/quota exceeded (Gmail's short-term per-user send-rate cap)
+#   500/502/503/504 = Google-side hiccups
+# These are exactly the errors a big one-shot blast (e.g. ~1,400 students) can hit
+# when messages go out faster than Gmail's per-second limit; a short backoff-and-
+# retry turns a would-be DROPPED student into a delivered one. A 401 (expired
+# token), 400 (bad recipient) etc. are NOT retried — they will never succeed on a
+# blind retry, so we surface them immediately for the caller to log.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_MAX_TRIES = 5                      # 1 initial + up to 4 retries
+
+
 def send_via_gmail_api(cfg, from_addr, to_addr, subject, body, attachments=None):
     access_token = _get_access_token(cfg)
     raw = _build_raw_message(from_addr, to_addr, subject, body, attachments)
@@ -210,14 +222,38 @@ def send_via_gmail_api(cfg, from_addr, to_addr, subject, body, attachments=None)
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-            return result.get("id", "")   # Gmail's id for the sent message
-    except urllib.error.HTTPError as e:
-        # Surface Google's JSON error (quota, invalid recipient, revoked scope…).
-        body_txt = e.read().decode("utf-8", "replace")
-        raise RuntimeError(f"gmail send HTTP {e.code}: {body_txt}")
+    # Retry loop with EXPONENTIAL BACKOFF for transient errors. On a 429/5xx we
+    # wait (honouring Google's Retry-After header if it sent one, else 1,2,4,8s)
+    # and try again, up to _MAX_TRIES. Any other error, or exhausting the retries,
+    # raises RuntimeError so send_batch records this one recipient as failed and
+    # carries on with the rest of the batch.
+    last_err = None
+    for attempt in range(1, _MAX_TRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+                return result.get("id", "")   # Gmail's id for the sent message
+        except urllib.error.HTTPError as e:
+            body_txt = e.read().decode("utf-8", "replace")
+            last_err = f"gmail send HTTP {e.code}: {body_txt}"
+            if e.code in _RETRYABLE_STATUS and attempt < _MAX_TRIES:
+                # Prefer the server's Retry-After (seconds) if present; else 2^(n-1).
+                try:
+                    wait = float(e.headers.get("Retry-After", ""))
+                except (TypeError, ValueError):
+                    wait = 0.0
+                if wait <= 0:
+                    wait = 2 ** (attempt - 1)      # 1, 2, 4, 8 seconds
+                time.sleep(wait)
+                continue                          # try again
+            raise RuntimeError(last_err)          # non-retryable, or out of tries
+        except urllib.error.URLError as e:
+            # Network blip (DNS/connection). Treat like a transient error.
+            last_err = f"gmail send network error: {e}"
+            if attempt < _MAX_TRIES:
+                time.sleep(2 ** (attempt - 1))
+                continue
+            raise RuntimeError(last_err)
 
 
 # ----------------------------------------------------------------------------

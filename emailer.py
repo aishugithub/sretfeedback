@@ -284,14 +284,33 @@ def send_batch(base_dir, subject, messages, is_test=False,
     # mirroring the "one email per student" rule the SMTP path also follows. A
     # failure on one recipient is recorded and the batch continues.
     if gcfg["enabled"]:
+        import time as _time                      # local: throttle + progress only
+        # THROTTLE for large one-shot blasts (e.g. ~1,400 students). Gmail enforces
+        # a short-term per-user SEND-RATE cap (separate from the 2,000/day quota); a
+        # tight no-delay loop can trip "Rate limit exceeded". A small pause between
+        # sends keeps us comfortably under it. Tunable via FEEDBACK_SEND_DELAY_SEC
+        # (seconds, default 0.25 ≈ 4/sec ≈ ~1,400 mails in ~6 min). Combined with
+        # the retry/backoff in gmail_api, a full-cohort send goes out without drops.
+        try:
+            delay = float(os.environ.get("FEEDBACK_SEND_DELAY_SEC", "0.25"))
+        except ValueError:
+            delay = 0.25
         from_addr = gcfg["from_addr"]           # feedback@sret.edu.in
-        for m in messages:
+        total = len(messages)
+        for idx, m in enumerate(messages, start=1):
             try:
                 send_via_gmail_api(gcfg, from_addr, m["to"], subject, m["body"],
                                    attachments=m.get("attachments"))
                 summary["count"] += 1
             except Exception as e:
                 summary["errors"].append(f"{m.get('to', '?')}: {e}")
+            # Progress line every 100 sends (visible when run from a console).
+            if idx % 100 == 0 or idx == total:
+                print(f"[emailer] sent {idx}/{total} "
+                      f"(ok={summary['count']}, failed={len(summary['errors'])})",
+                      flush=True)
+            if delay > 0 and idx < total:
+                _time.sleep(delay)              # gentle pacing under the rate cap
         return summary
 
     if cfg["enabled"]:

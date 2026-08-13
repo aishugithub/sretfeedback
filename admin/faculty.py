@@ -42,13 +42,44 @@ def _dept_label(code):
 
 
 # ----------------------------------------------------------------------------
+# _dept_context(master) -> (options, labels, valid)   (Aug 2026 — DB-driven)
+# ----------------------------------------------------------------------------
+# Build the department drop-down LIVE from the `department` table joined to its
+# HOD in app_user, so:
+#   * every department currently in the DB appears (E04, SH, EXT, E63 … — no more
+#     stale hard-coded list that missed E04), and
+#   * each option shows WHO the faculty would report to, e.g.
+#     "E05 — CSE-Medical(AIDA)  ·  HOD: Dr. V. Nandakumar".
+# Returns:
+#   options : list of (code, dropdown_label)  — ordered, for <select> menus
+#   labels  : dict  code -> cell_label        — for the roster table cell
+#   valid   : set   of codes                  — for form validation
+# A department with no HOD seated yet shows "· HOD: not set yet".
+# ----------------------------------------------------------------------------
+def _dept_context(master):
+    rows = master.execute(
+        "SELECT d.code, d.name, u.name AS hod_name "
+        "FROM department d "
+        "LEFT JOIN app_user u ON u.id = d.hod_user_id AND u.status = 'active' "
+        "ORDER BY d.code"
+    ).fetchall()
+    options, labels, valid = [], {}, set()
+    for r in rows:
+        hod = r["hod_name"] or "not set yet"
+        options.append((r["code"], "%s — %s  ·  HOD: %s" % (r["code"], r["name"], hod)))
+        labels[r["code"]] = "%s — %s · HOD: %s" % (r["code"], r["name"], hod)
+        valid.add(r["code"])
+    return options, labels, valid
+
+
+# ----------------------------------------------------------------------------
 # _clean(form) -> (fields_dict, error_or_None)
 # ----------------------------------------------------------------------------
 # Read + validate the add/edit form. emp_no and name are required; email is
 # recommended (a faculty with no email simply can't be mailed until one is set,
 # which the list flags). A chosen home department must be a real dept code.
 # ----------------------------------------------------------------------------
-def _clean(form):
+def _clean(form, valid_codes=None):
     emp_no = (form.get("emp_no", "") or "").strip()
     name   = (form.get("name", "") or "").strip()
     email  = (form.get("email", "") or "").strip().lower()
@@ -63,9 +94,12 @@ def _clean(form):
     if email and "@" not in email:
         return None, "That email address doesn't look valid."
     # An empty department is allowed (means "Unassigned — not set yet"); a
-    # non-empty one must be a known code OR the special EXTERNAL marker (a faculty
-    # with deliberately no HOD, reviewed only by the Vice Dean).
-    if dept and dept != rbac.DEPT_EXTERNAL and dept not in Config.DEPT_CODES:
+    # non-empty one must be a LIVE department code (validated against the DB via
+    # valid_codes) OR the special EXTERNAL marker (a faculty with deliberately no
+    # HOD, reviewed only by the Vice Dean). Falling back to Config.DEPT_CODES keeps
+    # old callers working if a set was not supplied.
+    allowed = valid_codes if valid_codes is not None else set(Config.DEPT_CODES)
+    if dept and dept != rbac.DEPT_EXTERNAL and dept not in allowed:
         return None, "Unknown department code: %s" % dept
     return {"emp_no": emp_no, "name": name, "email": email, "phone": phone,
             "home_dept_code": (dept or None), "status": status}, None
@@ -112,11 +146,14 @@ def faculty_list():
         "SELECT COUNT(*) n FROM faculty WHERE email IS NULL OR email=''").fetchone()["n"]
     n_no_dept = master.execute(
         "SELECT COUNT(*) n FROM faculty WHERE home_dept_code IS NULL").fetchone()["n"]
+    # DB-driven department options + labels (with each HOD's name) for the filter
+    # drop-down and the "HOD (Reporting to)" column.
+    dept_options, dept_labels, _valid = _dept_context(master)
     master.close()
 
     return render_template(
         "faculty_list.html", faculty=rows, counts=counts,
-        dept_label=_dept_label, dept_codes=Config.DEPT_CODES,
+        dept_options=dept_options, dept_labels=dept_labels,
         q=q, dept=dept, n_total=n_total, n_no_email=n_no_email, n_no_dept=n_no_dept)
 
 
@@ -125,24 +162,28 @@ def faculty_list():
 # ============================================================================
 @admin_bp.route("/faculty/new", methods=["GET", "POST"])
 def faculty_new():
-    if request.method == "GET":
-        return render_template("faculty_edit.html", fac=None,
-                               dept_codes=Config.DEPT_CODES)
+    master = get_master()
+    dept_options, _labels, valid = _dept_context(master)
 
-    fields, err = _clean(request.form)
+    if request.method == "GET":
+        master.close()
+        return render_template("faculty_edit.html", fac=None,
+                               dept_options=dept_options)
+
+    fields, err = _clean(request.form, valid_codes=valid)
     if err:
+        master.close()
         flash(err, "error")
         return render_template("faculty_edit.html", fac=request.form,
-                               dept_codes=Config.DEPT_CODES)
+                               dept_options=dept_options)
 
-    master = get_master()
     if master.execute("SELECT 1 FROM faculty WHERE emp_no = ?",
                       (fields["emp_no"],)).fetchone():
         master.close()
         flash("A faculty with employee number %s already exists." % fields["emp_no"],
               "error")
         return render_template("faculty_edit.html", fac=request.form,
-                               dept_codes=Config.DEPT_CODES)
+                               dept_options=dept_options)
 
     master.execute(
         "INSERT INTO faculty (emp_no, name, email, phone, home_dept_code, "
@@ -173,12 +214,14 @@ def faculty_edit(emp_no):
         flash("No such faculty.", "error")
         return redirect(url_for("admin.faculty_list"))
 
+    dept_options, _labels, valid = _dept_context(master)
+
     if request.method == "GET":
         master.close()
         return render_template("faculty_edit.html", fac=row,
-                               dept_codes=Config.DEPT_CODES)
+                               dept_options=dept_options)
 
-    fields, err = _clean(request.form)
+    fields, err = _clean(request.form, valid_codes=valid)
     if err:
         master.close()
         flash(err, "error")

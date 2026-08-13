@@ -53,18 +53,25 @@ class Config:
     # DEPARTMENT-CODE REFERENCE MAP (spec Section 3). These E-codes appear in the
     # allocation headers + student master; kept here for validation + the report
     # legend.
+    # NOTE (Aug 2026): this is now only a DISPLAY-NAME fallback + a seed default.
+    # The Manage Faculty and Users pages build their department drop-downs LIVE
+    # from the `department` table (so a dept added/removed in the DB shows up
+    # immediately, with its HOD's name). Kept in sync here so any screen that
+    # still reads it shows the same set: E04 (legacy Medical, final years), SH,
+    # EXT and E63 added; the retired E62/E71/E73 removed.
     DEPT_CODES = {
         "E01": "CSE-AIML",
         "E02": "CSE-CyberSecurity&IoT",
         "E03": "CSE-AIDA",
+        "E04": "Medical Engineering (legacy E04)",
         "E05": "CSE-Medical(AIDA)",
         "E06": "ECE",
         "E52": "B.Sc CS-AIDA",
         "E61": "B.Sc Bioinformatics",
-        "E62": "B.Sc Data Science",
-        "E71": "M.Sc AI",
-        "E73": "M.Sc Data Analytics",
+        "E63": "Bioinformatics (E63)",
         "E81": "M.Sc Medical Bioinformatics",
+        "SH":  "S & H",
+        "EXT": "External",
     }
 
     # NOTE (v3.1): the old CATEGORY_BY_CODE_SEGMENT auto-detection map was REMOVED

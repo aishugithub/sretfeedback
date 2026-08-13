@@ -144,6 +144,52 @@ def import_enrollment(path, master, cycle_code, offering_id, commit=False):
     }
 
 
+# ----------------------------------------------------------------------------
+# parse_enrollment_text(text) — the PASTE-BOX twin of parse_enrollment (Aug 2026)
+# ----------------------------------------------------------------------------
+# Copy-pasting a column of register numbers straight out of Excel is far quicker
+# for the admin than saving+uploading a file for each of ~20 electives. Excel
+# column paste arrives as one register number per line; we also tolerate commas,
+# semicolons, tabs or spaces in case a row or list is pasted. A leading header
+# word like 'register_no' (any token containing NO digit) is ignored, mirroring
+# the file parser's "header optional" rule; anything containing a digit is kept
+# so a genuinely mistyped register number still reaches validation and is flagged
+# (never silently dropped). Returns a list of upper-cased register-number tokens.
+# ----------------------------------------------------------------------------
+def parse_enrollment_text(text):
+    import re
+    regs = []
+    for tok in re.split(r"[\s,;]+", (text or "").strip()):
+        t = tok.strip().upper()
+        if not t:
+            continue
+        if not any(ch.isdigit() for ch in t):   # header/label word -> skip
+            continue
+        regs.append(t)
+    return regs
+
+
+def import_enrollment_text(text, master, cycle_code, offering_id, commit=False):
+    """Same as import_enrollment, but the register numbers come from PASTED TEXT
+    instead of an .xlsx file. Used by the enrollment page's copy-paste box; runs
+    the identical validate/commit path so the rules and reconciliation match."""
+    regs = parse_enrollment_text(text)
+    clean, errors, warnings, recon = validate_enrollment(
+        regs, master, cycle_code, offering_id)
+    inserted = 0
+    if commit and not errors:
+        inserted = commit_enrollment(clean, master, cycle_code, offering_id)
+    return {
+        "rows": len(regs),
+        "enrolled": len(clean),
+        "inserted": inserted,
+        "committed": bool(commit and not errors),
+        "errors": errors,
+        "warnings": warnings,
+        "reconciliation": recon,
+    }
+
+
 def build_enrollment_template(path, course_code="CS4001", faculty="Dr. Anand"):
     """A trivial single-column template (spec §7.3)."""
     wb = Workbook()

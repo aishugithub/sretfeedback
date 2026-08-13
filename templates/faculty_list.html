@@ -25,11 +25,11 @@
   <form class="filters" method="get" action="{{ url_for('admin.faculty_list') }}">
     <div><label>Search (name / emp-no / email)</label>
       <input name="q" value="{{ q }}" placeholder="type to search" style="min-width:220px"></div>
-    <div><label>Department</label>
+    <div><label>HOD (Reporting to)</label>
       <select name="dept">
         <option value="">All</option>
-        {% for code, name in dept_codes.items() %}
-          <option value="{{ code }}" {{ 'selected' if dept == code else '' }}>{{ code }} — {{ name }}</option>
+        {% for code, label in dept_options %}
+          <option value="{{ code }}" {{ 'selected' if dept == code else '' }}>{{ label }}</option>
         {% endfor %}
       </select></div>
     <button class="btn small" type="submit">Filter</button>
@@ -39,7 +39,7 @@
   <table>
     <thead>
       <tr><th>Emp No</th><th>Name</th><th>Email</th><th>Phone</th>
-          <th>Home department</th><th>Courses</th><th>Status</th><th>Actions</th></tr>
+          <th>HOD (Reporting to)</th><th>Courses</th><th>Status</th><th>Actions</th></tr>
     </thead>
     <tbody>
       {% for f in faculty %}
@@ -52,7 +52,7 @@
           </td>
           <td class="muted">{{ f.phone or '—' }}</td>
           <td>
-            {% if f.home_dept_code %}{{ dept_label(f.home_dept_code) }}
+            {% if f.home_dept_code %}{{ dept_labels.get(f.home_dept_code, f.home_dept_code) }}
             {% else %}<span class="pill warn">not set</span>{% endif %}
           </td>
           <td>{{ counts.get(f.emp_no, 0) }}</td>

@@ -51,13 +51,13 @@
       </div>
 
       <div class="field">
-        <label>Home department — which HOD this faculty belongs to</label>
+        <label>HOD (Reporting to) — the HOD who receives this faculty's ATRs &amp; reports</label>
         <select name="home_dept_code">
           <option value="">— Unassigned (set later) —</option>
-          {% for code, name in dept_codes.items() %}
+          {% for code, label in dept_options %}
             <option value="{{ code }}"
               {{ 'selected' if fac and fac['home_dept_code'] == code else '' }}>
-              {{ code }} — {{ name }}
+              {{ label }}
             </option>
           {% endfor %}
           <option value="EXTERNAL"
@@ -66,7 +66,8 @@
           </option>
         </select>
         <div class="muted" style="margin-top:4px">
-          This decides which HOD reviews their ATRs. <b>Unassigned</b> = no HOD yet
+          This is the HOD this faculty <b>reports to</b> — every ATR and report for
+          their courses goes to this HOD for review. <b>Unassigned</b> = no HOD yet
           (shown to you/the Dean to fix, hidden from HODs). <b>External</b> = a
           faculty with no HOD by design — only the Vice Dean sees their courses.
         </div>
