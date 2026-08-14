@@ -87,6 +87,40 @@ DEPT_LEGEND = [
 # the same identity line, the same section order, and the same tables.
 # ----------------------------------------------------------------------------
 
+# ----------------------------------------------------------------------------
+# _name_titled(name) — move a trailing honorific to the FRONT (Aug 2026)
+# ----------------------------------------------------------------------------
+# The allocation stores teacher names with the title LAST, e.g. "Manoj Kumaran S
+# Mr." or "Abhinand P A Dr.". Reports read better with the honorific in front —
+# "Mr. Manoj Kumaran S", "Dr. Abhinand P A". We detect a final token that is a
+# known honorific (with or without a dot, any case), normalise it to "Xx.", and
+# move it to the front. Names without a trailing honorific are returned unchanged.
+# ----------------------------------------------------------------------------
+_HONORIFICS = {"dr": "Dr.", "mr": "Mr.", "ms": "Ms.", "mrs": "Mrs.",
+               "prof": "Prof.", "miss": "Miss", "shri": "Shri", "smt": "Smt."}
+
+
+def _name_titled(name):
+    parts = (name or "").strip().split()
+    if len(parts) < 2:
+        return (name or "").strip()
+    key = parts[-1].rstrip(".").lower()
+    if key in _HONORIFICS:
+        return _HONORIFICS[key] + " " + " ".join(parts[:-1])
+    return " ".join(parts)
+
+
+def _section_batch(section):
+    """Section A -> 'Sec A / Batch 1', Section B -> 'Sec B / Batch 2', etc., so a
+    report for one section of a split course clearly states which batch it covers.
+    A course with no real section ('NA'/blank) returns '' (nothing to show)."""
+    s = (section or "").strip().upper()
+    if not s or s in ("NA", "N/A", "-", "NONE"):
+        return ""
+    idx = {"A": "1", "B": "2", "C": "3", "D": "4", "E": "5", "F": "6"}.get(s)
+    return "Sec %s / Batch %s" % (s, idx) if idx else "Sec %s" % s
+
+
 def build_view_model(result):
     o = result["offering"]
 
@@ -96,14 +130,22 @@ def build_view_model(result):
     year_term = f"Y{o['year_of_study']}"
     if o["semester"]:
         year_term += f" - Sem {o['semester']}"
+    section = _section_batch(o["section"] if "section" in o.keys() else "")
     header = {
+        "section": section,
         "academic_year": o["academic_year"],
         "year_term": year_term,
         "course_code": o["course_code"] or "",
         "course_name": (o["course_name"] or "").upper(),
-        "programme": o["programme"] or "",
+        # Show the OFFICIAL expanded programme name looked up by programme code
+        # (Config.PROGRAMMES, kept current Aug 2026), so the report reads e.g.
+        # "B.Tech Computer Science and Medical Engineering (Artificial Intelligence
+        # and Data Analytics)" rather than whatever short/old text the allocation
+        # happened to carry. Falls back to the stored value if the code is unknown.
+        "programme": (Config.PROGRAMMES.get(o["dept_code"] or "", (None,))[0]
+                      or o["programme"] or ""),
         "dept_code": o["dept_code"] or "",
-        "faculty": o["faculty"] or "",
+        "faculty": _name_titled(o["faculty"] or ""),
         "category": result.get("report_key") or "",
         "category_name": o["category_name"] if "category_name" in o.keys() else "",
     }
@@ -194,9 +236,25 @@ def build_excel_report(result, path):
 
     r = 1  # running row cursor
 
-    # ---- Title banner -------------------------------------------------------
+    # ---- Banner image + title ----------------------------------------------
+    # The college banner (app/static/banner.png) at the very top, then just
+    # "Course Feedback Report" — no version, no "SRET" text. The image floats
+    # over rows 1-7 (whose height we reserve); if it can't be added we simply
+    # start the title at row 1 so the sheet is never broken.
+    banner_path = os.path.join(Config.BASE_DIR, "static", "banner.png")
+    if os.path.exists(banner_path):
+        try:
+            from openpyxl.drawing.image import Image as XLImage
+            img = XLImage(banner_path)
+            img.width, img.height = 720, 144          # 5:1 aspect, ~content width
+            ws.add_image(img, "A1")
+            for rr in range(1, 8):                    # reserve space under the image
+                ws.row_dimensions[rr].height = 21
+            r = 9
+        except Exception:
+            r = 1
     ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
-    cell = ws.cell(r, 1, "SRET — Course Feedback Report (V2.0)")
+    cell = ws.cell(r, 1, "Course Feedback Report")
     cell.fill = _HDR_FILL; cell.font = _HDR_FONT
     cell.alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[r].height = 24
@@ -207,6 +265,10 @@ def build_excel_report(result, path):
     ident = [
         ("ACADEMIC YEAR", h["academic_year"]),
         ("YEAR / TERM", h["year_term"]),
+    ]
+    if h["section"]:                       # only for split (multi-section) courses
+        ident.append(("SECTION / BATCH", h["section"]))
+    ident += [
         ("COURSE CODE", h["course_code"]),
         ("COURSE NAME", h["course_name"]),
         ("PROGRAM CODE", h["dept_code"]),
@@ -296,6 +358,11 @@ def _pdf_styles():
     ss.add(ParagraphStyle("SecTitle", parent=ss["Heading2"], textColor=colors.HexColor("#0B3D68")))
     ss.add(ParagraphStyle("Cmt", parent=ss["Normal"], fontSize=9, leading=12, leftIndent=8))
     ss.add(ParagraphStyle("Legend", parent=ss["Normal"], fontSize=7.5, leading=10))
+    # Centred, small header style for the option-count table columns, so long
+    # labels ("Strongly Disagree") wrap tidily inside their column instead of
+    # overlapping the next one.
+    ss.add(ParagraphStyle("Hdr", parent=ss["Normal"], fontSize=7, leading=8,
+                          alignment=1, fontName="Helvetica-Bold"))
     return ss
 
 
@@ -375,7 +442,7 @@ class NumberedCanvas(_rl_canvas.Canvas):
 
 def _footer_left_for(result):
     o = result["offering"]
-    return f"{o['faculty'] or 'Faculty'} · {o['course_code'] or ''}"
+    return f"{_name_titled(o['faculty']) or 'Faculty'} · {o['course_code'] or ''}"
 
 
 def build_pdf_report(result, path_or_buffer):
@@ -485,15 +552,29 @@ def _append_pdf_story(result, story, ss):
     This is the same layout as build_pdf_report, factored so the combined-batch
     PDF can stack many offerings into one document without merging PDF files.
     """
-    from reportlab.platypus import PageBreak  # local import keeps top clean
+    from reportlab.platypus import PageBreak, Image as RLImage  # local imports
     vm = build_view_model(result)
-    story.append(Paragraph("<b>SRET — Course Feedback Report (V2.0)</b>", ss["Title"]))
+    # TITLE: the college banner image (as seen on all our documents), then just
+    # "Course Feedback Report" — no version number, no "SRET" text. The banner
+    # lives at app/static/banner.png; if it is somehow missing we fall back to a
+    # plain text title so a report is never blank.
+    banner_path = os.path.join(Config.BASE_DIR, "static", "banner.png")
+    if os.path.exists(banner_path):
+        # Banner art is 2000x400 (5:1). Fit it to the content width (~180mm) and
+        # keep the aspect ratio so it never distorts.
+        banner = RLImage(banner_path, width=180 * mm, height=36 * mm)
+        banner.hAlign = "CENTER"
+        story.append(banner)
+        story.append(Spacer(1, 6))
+    story.append(Paragraph("<b>Course Feedback Report</b>", ss["Title"]))
     story.append(Spacer(1, 6))
     h = vm["header"]
     ident_lines = (
         f"<b>ACADEMIC YEAR:</b> {h['academic_year']} &nbsp;&nbsp; "
-        f"<b>YEAR / TERM:</b> {h['year_term']}<br/>"
-        f"<b>COURSE CODE:</b> {h['course_code']} &nbsp;&nbsp; "
+        f"<b>YEAR / TERM:</b> {h['year_term']}"
+        + (f" &nbsp;&nbsp; <b>SECTION:</b> {h['section']}" if h['section'] else "")
+        + "<br/>"
+        + f"<b>COURSE CODE:</b> {h['course_code']} &nbsp;&nbsp; "
         f"<b>COURSE NAME:</b> {h['course_name']}<br/>"
         f"<b>PROGRAM CODE:</b> {h['dept_code']} &nbsp;&nbsp; "
         f"<b>PROGRAMME:</b> {h['programme']}<br/>"
@@ -551,7 +632,16 @@ def _append_pdf_story(result, story, ss):
         # A leading "#" column numbers the questions Q1..Qn; the trailing "Avg"
         # column carries each question's average /10 — the exact numbers that used
         # to be drawn as a bar chart, kept as data after the v3.2 chart removal.
-        tdata = [["#", "Question"] + labels + ["Avg"]]
+        # HEADER CELLS ARE PARAGRAPHS, not raw strings: a plain string does NOT
+        # wrap inside a narrow ReportLab table cell, so long option labels like
+        # "Strongly Disagree" used to spill over and overlap the neighbouring
+        # columns ("Strongly DisagreAevg"). Wrapping each label in a Paragraph
+        # with the centred header style lets it break onto two lines and stay
+        # inside its own column.
+        header_cells = ([Paragraph("#", ss["Hdr"]), Paragraph("Question", ss["Hdr"])]
+                        + [Paragraph(lbl, ss["Hdr"]) for lbl in labels]
+                        + [Paragraph("Avg", ss["Hdr"])])
+        tdata = [header_cells]
         # A section that scores at section level (Syllabus) leaves per-question
         # averages None; for such a SINGLE-question section, show the section score
         # in the Avg cell instead of a blank. Multi-question sections keep None.

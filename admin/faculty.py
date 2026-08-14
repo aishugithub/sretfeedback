@@ -66,8 +66,12 @@ def _dept_context(master):
     options, labels, valid = [], {}, set()
     for r in rows:
         hod = r["hod_name"] or "not set yet"
-        options.append((r["code"], "%s — %s  ·  HOD: %s" % (r["code"], r["name"], hod)))
-        labels[r["code"]] = "%s — %s · HOD: %s" % (r["code"], r["name"], hod)
+        # Prefer the OFFICIAL programme name (Config.DEPT_CODES, updated Aug 2026)
+        # over the department table's short label, so the drop-down shows the
+        # institution's real programme titles WITHOUT needing a DB migration.
+        nm = Config.DEPT_CODES.get(r["code"], r["name"])
+        options.append((r["code"], "%s — %s  ·  HOD: %s" % (r["code"], nm, hod)))
+        labels[r["code"]] = "%s — %s · HOD: %s" % (r["code"], nm, hod)
         valid.add(r["code"])
     return options, labels, valid
 

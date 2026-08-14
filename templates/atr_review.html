@@ -26,13 +26,21 @@
     </table>
 
     {% if is_external %}
-      {# EXTERNAL-FACULTY rule: no real teacher filed a narrative. The External
-         department HOD writes his own action note below and submits it up to the
-         Vice Dean. We show any note already saved, else a clear placeholder. #}
+      {# EXTERNAL-FACULTY rule: no real teacher filed a narrative. Only the
+         External-department HOD (Arul sir) WRITES the note — everyone above him
+         (Vice Dean, Dean) just READS it and endorses. So the "write your note"
+         wording appears only to the HOD; the VD/Dean see the HOD's note read-only.
+         (This is the fix for the VD page still showing the HOD note-writing box.) #}
       <div class="flash" style="background:#eef;border-left:4px solid #557">
-        <b>External faculty course.</b> There is no faculty member to file an ATR.
-        As the External-department HOD, write your action note below and endorse it
-        to the Vice Dean.
+        {% if leader.role == 'HOD' %}
+          <b>External faculty course.</b> There is no faculty member to file an ATR.
+          As the External-department HOD, write your action note below and endorse it
+          to the Vice Dean.
+        {% else %}
+          <b>External faculty course.</b> There is no faculty ATR — the
+          External-department HOD has filed the action note below. Review it and
+          endorse as usual.
+        {% endif %}
       </div>
       <h3>HOD action note (external)</h3>
       <p style="white-space:pre-wrap">{{ atr.body or '(no note written yet)' }}</p>
@@ -44,9 +52,10 @@
     {% if actions %}
       <h3>Your decision</h3>
       {% if 'ENDORSE' in actions %}
-        {% if is_external %}
-          {# For an external ATR the endorse form carries a `body` textarea so the
-             HOD's note becomes the ATR narrative as it moves to the Vice Dean. #}
+        {% if is_external and leader.role == 'HOD' %}
+          {# Only the External-department HOD writes the note as part of endorsing
+             to the Vice Dean. VD/Dean fall through to the plain Endorse button
+             below, which leaves the HOD's note untouched. #}
           <form method="post"
                 action="{{ url_for('atr.atr_act', cycle_code=cycle.code, atr_id=atr.id, action='endorse') }}">
             <input type="hidden" name="comment" value="">

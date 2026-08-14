@@ -60,17 +60,19 @@ class Config:
     # still reads it shows the same set: E04 (legacy Medical, final years), SH,
     # EXT and E63 added; the retired E62/E71/E73 removed.
     DEPT_CODES = {
-        "E01": "CSE-AIML",
-        "E02": "CSE-CyberSecurity&IoT",
-        "E03": "CSE-AIDA",
-        "E04": "Medical Engineering (legacy E04)",
-        "E05": "CSE-Medical(AIDA)",
-        "E06": "ECE",
-        "E52": "B.Sc CS-AIDA",
+        # Official programme names (sriramachandra.edu), Aug 2026. Used for the
+        # dropdown labels on the Manage Faculty and Users pages.
+        "E01": "B.Tech CSE (Artificial Intelligence and Machine Learning)",
+        "E02": "B.Tech CSE (Cybersecurity and Internet of Things)",
+        "E03": "B.Tech CSE (Artificial Intelligence and Data Analytics)",
+        "E04": "B.Tech Computer Science and Medical Engineering",
+        "E05": "B.Tech Computer Science and Medical Engineering (Artificial Intelligence and Data Analytics)",
+        "E06": "B.Tech Electronics and Communication Engineering",
+        "E52": "B.Sc (Hons) Computer Science (Artificial Intelligence and Data Analytics)",
         "E61": "B.Sc Bioinformatics",
-        "E63": "Bioinformatics (E63)",
+        "E63": "B.Sc (Hons) Bioinformatics",
         "E81": "M.Sc Medical Bioinformatics",
-        "SH":  "S & H",
+        "SH":  "S & H (Science & Humanities)",
         "EXT": "External",
     }
 
@@ -86,16 +88,16 @@ class Config:
     # `programme` table by init_db; the roster/allocation importers validate every
     # uploaded programme_code against it.
     PROGRAMMES = {
+        # Official names (sriramachandra.edu), Aug 2026. Display/seed reference.
         "E01": ("B.Tech CSE (Artificial Intelligence and Machine Learning)", "B.Tech"),
-        "E02": ("B.Tech CSE (Cyber Security and Internet of Things)", "B.Tech"),
+        "E02": ("B.Tech CSE (Cybersecurity and Internet of Things)", "B.Tech"),
         "E03": ("B.Tech CSE (Artificial Intelligence and Data Analytics)", "B.Tech"),
-        "E05": ("B.Tech Computer Science and Medical Engineering (AI and Data Analytics)", "B.Tech"),
+        "E04": ("B.Tech Computer Science and Medical Engineering", "B.Tech"),
+        "E05": ("B.Tech Computer Science and Medical Engineering (Artificial Intelligence and Data Analytics)", "B.Tech"),
         "E06": ("B.Tech Electronics and Communication Engineering", "B.Tech"),
-        "E52": ("B.Sc Computer Science (Artificial Intelligence and Data Analytics)", "B.Sc"),
-        "E61": ("B.Sc Bio Informatics", "B.Sc"),
-        "E62": ("B.Sc Data Science", "B.Sc"),
-        "E71": ("M.Sc Artificial Intelligence", "M.Sc"),
-        "E73": ("M.Sc Data Analytics", "M.Sc"),
+        "E52": ("B.Sc (Hons) Computer Science (Artificial Intelligence and Data Analytics)", "B.Sc"),
+        "E61": ("B.Sc Bioinformatics", "B.Sc"),
+        "E63": ("B.Sc (Hons) Bioinformatics", "B.Sc"),
         "E81": ("M.Sc Medical Bioinformatics", "M.Sc"),
     }
 

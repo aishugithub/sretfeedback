@@ -45,23 +45,69 @@
     </div>
   {% endif %}
 
+  {# ======================================================================
+     CONFIRM-BEFORE-SEND PANEL (server-computed count). Rendered only after the
+     admin clicks "Preview & send" — it shows the EXACT programme code / year and
+     the real number of students, so a too-broad batch is caught by eye before a
+     single email goes out. Nothing has been generated or sent yet at this point.
+     ====================================================================== #}
+  {% if pending %}
+    <div class="card" style="border:2px solid #d97706; background:#fffaf0">
+      <h3 style="margin-top:0">⚠ Confirm before sending</h3>
+      <p style="font-size:1.05em">You are about to email
+        <strong style="font-size:1.5em; color:#7a1c15">{{ pending.with_email }}</strong>
+        student(s). Please check the scope:</p>
+      <table style="margin-bottom:12px">
+        <tr><th style="text-align:left">Programme code</th>
+            <td>{% if pending.dept %}<b>{{ pending.dept }}</b> — {{ dept_names.get(pending.dept,'?') }}
+                {% else %}<b style="color:#7a1c15">⚠ ALL departments</b>{% endif %}</td></tr>
+        <tr><th style="text-align:left">Year</th>
+            <td>{% if pending.year %}<b>Year {{ pending.year }}</b>
+                {% else %}<b style="color:#7a1c15">⚠ ALL years</b>{% endif %}</td></tr>
+        <tr><th style="text-align:left">Degree level</th>
+            <td>{{ pending.programme or 'All' }}</td></tr>
+        <tr><th style="text-align:left">Students in this batch</th>
+            <td>{{ pending.total }} total · <b>{{ pending.with_email }}</b> have an email address</td></tr>
+      </table>
+      {% if not pending.dept %}
+        <div class="flash error" style="margin-bottom:12px">
+          <b>No programme code selected</b> — this will email students across
+          <b>every department</b>. If you meant one department, click Cancel and
+          pick its programme code first.
+        </div>
+      {% endif %}
+      <form method="post" action="{{ url_for('admin.tokens_generate', cycle_id=cycle.id) }}"
+            style="display:inline">
+        <input type="hidden" name="confirm" value="yes">
+        <input type="hidden" name="programme" value="{{ pending.programme }}">
+        <input type="hidden" name="dept" value="{{ pending.dept }}">
+        <input type="hidden" name="year" value="{{ pending.year }}">
+        <input type="hidden" name="send_email" value="on">
+        <button class="btn" type="submit">Confirm &amp; email {{ pending.with_email }} student(s)</button>
+      </form>
+      <a class="btn grey" href="{{ url_for('admin.tokens_page', cycle_id=cycle.id) }}">Cancel</a>
+    </div>
+  {% endif %}
+
   <div class="card">
     <h3 style="margin-top:0">Choose a batch</h3>
     <p class="muted">One token per eligible student per cycle. Re-running is safe — existing tokens are kept. Only <em>active</em> students within their programme duration get a link.</p>
+    <p class="muted">Tip: pick a <b>Programme code</b> <em>and</em> a <b>Year</b> to keep each
+      batch small (one class at a time). Clicking <b>Preview&nbsp;&amp;&nbsp;send</b> shows the exact
+      count for confirmation before anything is emailed.</p>
     <form method="post" action="{{ url_for('admin.tokens_generate', cycle_id=cycle.id) }}"
-          onsubmit="return confirmSend(this)"
           style="display:flex; gap:12px; flex-wrap:wrap; align-items:end">
-      <div class="field" style="margin:0"><label>Programme</label>
-        <select name="programme" style="width:130px"><option value="">All</option>
-          {% for p in programmes %}<option value="{{ p.programme }}">{{ p.programme }}</option>{% endfor %}</select></div>
-      <div class="field" style="margin:0"><label>Department</label>
-        <select name="dept" style="width:200px"><option value="">All</option>
+      <div class="field" style="margin:0"><label><b>Programme code</b></label>
+        <select name="dept" style="width:230px"><option value="">⚠ All departments</option>
           {% for d in depts %}<option value="{{ d.dept_code }}">{{ d.dept_code }} — {{ dept_names.get(d.dept_code,'?') }}</option>{% endfor %}</select></div>
-      <div class="field" style="margin:0"><label>Year (derived)</label>
-        <select name="year" style="width:100px"><option value="">All</option>
+      <div class="field" style="margin:0"><label><b>Year</b></label>
+        <select name="year" style="width:120px"><option value="">⚠ All years</option>
           {% for y in [1,2,3,4] %}<option value="{{ y }}">Year {{ y }}</option>{% endfor %}</select></div>
-      <div class="field" style="margin:0"><label><input type="checkbox" name="send_email" checked> Email links now</label></div>
-      <button class="btn" type="submit">Generate &amp; send</button>
+      <div class="field" style="margin:0"><label>Degree level (optional)</label>
+        <select name="programme" style="width:140px"><option value="">All</option>
+          {% for p in programmes %}<option value="{{ p.programme }}">{{ p.programme }}</option>{% endfor %}</select></div>
+      <div class="field" style="margin:0"><label><input type="checkbox" name="send_email" checked> Email links</label></div>
+      <button class="btn" type="submit">Preview &amp; send</button>
     </form>
   </div>
 

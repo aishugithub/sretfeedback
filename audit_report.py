@@ -37,7 +37,9 @@ from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
-                                TableStyle, PageBreak)
+                                TableStyle, PageBreak, Image as RLImage)
+
+from config import Config          # BASE_DIR — to locate the college banner image
 
 
 # ----------------------------------------------------------------------------
@@ -171,13 +173,28 @@ def _pdf_bytes(data, watermark=None):
     story = []
     c = data["cycle"]
 
-    story.append(Paragraph("SRET — Automated Feedback System", ss["Title"]))
-    story.append(Paragraph("End-of-Cycle Audit Report", ss["Heading2"]))
+    # TITLE: the same college banner + clean title as the faculty report — the
+    # banner image at the top, then "End-of-Cycle Audit Report" (no "SRET" text,
+    # no version). Falls back to a text title if the banner file is missing.
+    banner_path = os.path.join(Config.BASE_DIR, "static", "banner.png")
+    if os.path.exists(banner_path):
+        banner = RLImage(banner_path, width=178 * mm, height=35.6 * mm)  # 5:1 aspect
+        banner.hAlign = "CENTER"
+        story.append(banner)
+        story.append(Spacer(1, 6))
+    story.append(Paragraph("<b>End-of-Cycle Audit Report</b>", ss["Title"]))
     if watermark:
         story.append(Paragraph("<font color='#b23'><b>%s</b></font>" % watermark, ss["BodyText"]))
+    # Semester (Odd/Even) comes straight off the cycle row; shown title-cased.
+    try:
+        _sem = (c["semester"] or "").strip()
+    except Exception:
+        _sem = ""
+    sem_disp = {"ODD": "Odd", "EVEN": "Even"}.get(_sem.upper(), _sem or "—")
     meta = ("Cycle: <b>%s — %s</b> &nbsp;|&nbsp; Academic year: %s &nbsp;|&nbsp; "
-            "Status: <b>%s</b> &nbsp;|&nbsp; Generated: %s"
-            % (c["code"], c["label"], c["academic_year"],
+            "Semester: <b>%s</b> &nbsp;|&nbsp; Status: <b>%s</b> &nbsp;|&nbsp; "
+            "Generated: %s"
+            % (c["code"], c["label"], c["academic_year"], sem_disp,
                c["status"] or "—", data["generated_at"]))
     story.append(Paragraph(meta, ss["Small"]))
     story.append(Spacer(1, 8))
@@ -252,9 +269,14 @@ def _pdf_bytes(data, watermark=None):
         "sealed by the system; any alteration after signing invalidates the "
         "signature. The endorsement trail above records the Dean/Vice-Dean/HOD "
         "endorsements that closed each ATR.", ss["BodyText"]))
-    story.append(Spacer(1, 20))
-    story.append(Paragraph("Endorsed by (Dean / Vice-Dean): "
-                 "_______________________________", ss["BodyText"]))
+    story.append(Spacer(1, 14))
+    story.append(Paragraph(
+        "<b>Digitally signed by the Automated Feedback System.</b> No manual "
+        "signature is required — this report is sealed with the institution's "
+        "digital certificate (signer: “SRET Automated Feedback System”), "
+        "and any change to even one byte after signing invalidates the seal. The "
+        "Dean / Vice-Dean / HOD endorsements that closed each ATR are recorded in "
+        "the endorsement trail in section 3 above.", ss["BodyText"]))
 
     doc.build(story)
     return buf.getvalue()

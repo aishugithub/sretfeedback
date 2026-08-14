@@ -105,20 +105,22 @@ def reports_home():
             selected = cycles[0]
 
     items = []
-    programmes = depts = years = []
     if selected is not None and os.path.exists(
             db.cycle_db_path(selected["academic_year"], selected["code"])):
         cy = _open_cycle_db(selected)
         items = _offerings_with_responses(master, cy)
         cy.close()
-        # Batch-filter dropdown values, taken from the reportable offerings.
-        programmes = sorted({it["offering"]["programme"] for it in items})
-        depts = sorted({it["offering"]["dept_code"] for it in items})
-        years = sorted({it["offering"]["year_of_study"] for it in items})
 
     master.close()
+    # Programme-code + Year filters now show the FULL, stable lists — every degree
+    # programme (E01…E81 incl. E04/E52/E63) and all four years — NOT just the
+    # codes/years that already have collected responses. That "responses-only"
+    # source was exactly why E04, E52, E63 and years beyond the one currently
+    # answered were missing from the drop-downs.
+    depts = sorted(Config.PROGRAMMES.keys())
+    years = [1, 2, 3, 4]
     return render_template("reports.html", cycles=cycles, selected=selected,
-                           items=items, programmes=programmes, depts=depts,
+                           items=items, programmes=[], depts=depts,
                            years=years, dept_names=Config.DEPT_CODES)
 
 
@@ -143,7 +145,7 @@ def report_one(cycle_id, offering_id, fmt):
     cy.close(); master.close()
     # Test cycles stamp a diagonal "TEST DATA" watermark on the PDF (spec §9.1).
     if result is not None and cyc["is_test"]:
-        result["watermark"] = "TEST DATA — NOT FOR CIRCULATION"
+        result["watermark"] = "TESTING ONLY"
     if result is None:
         flash("Nothing to report for that offering (uncategorised or no responses).",
               "error")
@@ -214,7 +216,7 @@ def report_bulk(cycle_id, fmt):
     for it in items:
         res = scoring.score_offering(master, cy, it["offering"]["id"], dl_weight)
         if res is not None and cyc["is_test"]:
-            res["watermark"] = "TEST DATA — NOT FOR CIRCULATION"
+            res["watermark"] = "TESTING ONLY"
         if res is not None:
             results.append(res)
     cy.close(); master.close()

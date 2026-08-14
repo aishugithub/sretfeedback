@@ -110,8 +110,10 @@
     {# Live-mail status, mirroring the Tokens/Participation warning. #}
     {% if cycle.is_test %}
       <div class="warn"><b>TEST cycle:</b> unless you set a redirect address below,
-      every email goes to the built-in test address
-      <code>{{ mail.test_redirect }}</code> — no real teacher is mailed.</div>
+      every teacher email goes to the built-in <b>staff</b> test address
+      <code>{{ mail.faculty_alias }}</code> — no real teacher is mailed.
+      (The student test inbox <code>{{ mail.test_redirect }}</code> is only used for
+      student links, not for these teacher emails.)</div>
     {% elif mail.live %}
       <div class="warn"><b>Live email is ON</b> (from {{ mail.from_addr }}). Sending
       will deliver to real faculty inboxes — unless you set a redirect address below.</div>

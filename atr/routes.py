@@ -509,7 +509,7 @@ def atr_report(cycle_code, offering_id, fmt):
 
     # Test cycles stamp the same "TEST DATA" watermark the admin PDF uses (§9.1).
     if result is not None and cyc["is_test"]:
-        result["watermark"] = "TEST DATA — NOT FOR CIRCULATION"
+        result["watermark"] = "TESTING ONLY"
     if result is None:
         flash("Nothing to report for that offering (uncategorised or no responses).",
               "error")

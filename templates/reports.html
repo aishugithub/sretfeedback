@@ -38,17 +38,13 @@
     {# ---- Bulk (per-batch) generation ---------------------------------- #}
     <div class="card">
       <h3 style="margin-top:0">Bulk generate for a batch</h3>
-      <p class="muted">Optionally narrow to a programme / department / year, then
+      <p class="muted">Optionally narrow to a programme code / year, then
         download every matching offering's report in one file.</p>
       <form method="get" id="bulkform"
             action="{{ url_for('admin.report_bulk', cycle_id=selected.id, fmt='zip') }}"
             style="display:flex; gap:10px; align-items:end; flex-wrap:wrap">
-        <div class="field" style="margin:0"><label>Programme</label>
-          <select name="programme"><option value="">(all)</option>
-            {% for p in programmes %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
-          </select></div>
-        <div class="field" style="margin:0"><label>Department</label>
-          <select name="dept"><option value="">(all)</option>
+        <div class="field" style="margin:0"><label>Programme code</label>
+          <select name="dept" style="min-width:230px"><option value="">(all)</option>
             {% for d in depts %}<option value="{{ d }}">{{ d }} — {{ dept_names.get(d, '') }}</option>{% endfor %}
           </select></div>
         <div class="field" style="margin:0"><label>Year</label>

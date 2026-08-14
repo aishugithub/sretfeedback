@@ -237,6 +237,32 @@ def cycles_email(cycle_id):
 # year, preview how many ELIGIBLE students match, then generate + optionally
 # email. We show the eligible count live so a batch is never sent blind.
 # ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# _tokens_context(conn, c) -> (programmes, depts, ay, mail)
+# ----------------------------------------------------------------------------
+# The shared context the tokens page needs, so BOTH the initial GET and the
+# server-side "confirm before send" preview render an identical page. `mail`
+# describes EXACTLY what a send will do (dev-outbox / test-redirect / real),
+# computed from the same switches the mailer obeys so the banner can't lie.
+# ----------------------------------------------------------------------------
+def _tokens_context(conn, c):
+    programmes = conn.execute(
+        "SELECT DISTINCT programme FROM students ORDER BY programme").fetchall()
+    depts = conn.execute(
+        "SELECT DISTINCT dept_code FROM students ORDER BY dept_code").fetchall()
+    ay = conn.execute("SELECT * FROM academic_year WHERE is_active=1 LIMIT 1").fetchone()
+    m = emailer.active_mode()                    # gmail-api > smtp > dev-outbox
+    level = emailer.test_level_of(c)             # 0 prod / 1 / 2 / 3
+    mail = {
+        "live": m["live"], "mode": m["mode"], "host": m["host"],
+        "from_addr": m["from_addr"], "test_level": level,
+        "is_test": level != 0,
+        "test_redirect": Config.TEST_REDIRECT_EMAIL,   # student test inbox
+        "reaches_students": m["live"] and level in (0, 3),
+    }
+    return programmes, depts, ay, mail
+
+
 @admin_bp.route("/cycles/<int:cycle_id>/tokens", methods=["GET"])
 def tokens_page(cycle_id):
     conn = get_master()
@@ -244,42 +270,11 @@ def tokens_page(cycle_id):
     if c is None:
         conn.close(); flash("Cycle not found.", "error")
         return redirect(url_for("admin.cycles_list"))
-    # Distinct values for the batch filter dropdowns (from the student master).
-    programmes = conn.execute(
-        "SELECT DISTINCT programme FROM students ORDER BY programme").fetchall()
-    depts = conn.execute(
-        "SELECT DISTINCT dept_code FROM students ORDER BY dept_code").fetchall()
-    ay = conn.execute("SELECT * FROM academic_year WHERE is_active=1 LIMIT 1").fetchone()
+    programmes, depts, ay, mail = _tokens_context(conn, c)
     conn.close()
-
-    # --- Live mail status for the pre-send banner ---------------------------
-    # We compute EXACTLY what will happen the moment "Generate & send" is clicked,
-    # from the same two switches the mailer itself obeys, so the banner can never
-    # disagree with reality:
-    #   1. mail_live  — is real SMTP configured? (emailer.smtp_settings()['enabled'],
-    #      True iff FEEDBACK_SMTP_HOST is set). If False, messages are written to
-    #      app/outbox/ as .eml files and NOTHING leaves the laptop.
-    #   2. is_test    — is this a TEST cycle? If so the mailer hard-redirects every
-    #      message to Config.TEST_REDIRECT_EMAIL, so students are never contacted.
-    # The dangerous combination — real students actually get email — is ONLY
-    # mail_live AND not is_test; the template highlights precisely that case.
-    m = emailer.active_mode()                    # gmail-api > smtp > dev-outbox
-    level = emailer.test_level_of(c)             # 0 prod / 1 / 2 / 3
-    mail = {
-        "live": m["live"],                       # True = real mail (gmail-api OR smtp)
-        "mode": m["mode"],
-        "host": m["host"],                       # shown when live, for reassurance
-        "from_addr": m["from_addr"],
-        "test_level": level,
-        "is_test": level != 0,                   # any non-production level
-        "test_redirect": Config.TEST_REDIRECT_EMAIL,   # student test inbox
-        # Real students are emailed ONLY at Level 3 or Production (0); Levels 1 & 2
-        # redirect every student message to the student test inbox.
-        "reaches_students": m["live"] and level in (0, 3),
-    }
     return render_template("tokens_page.html", cycle=c, programmes=programmes,
                            depts=depts, ay=ay, dept_names=Config.DEPT_CODES,
-                           mail=mail)
+                           mail=mail, pending=None)
 
 
 # ----------------------------------------------------------------------------
@@ -320,8 +315,25 @@ def tokens_generate(cycle_id):
     dept = request.form.get("dept", "").strip()
     year = request.form.get("year", "").strip()
     do_send = request.form.get("send_email") == "on"
+    confirmed = request.form.get("confirm") == "yes"
 
     batch = _select_batch(conn, c["code"], programme, dept, year)
+
+    # ---- SAFETY PREVIEW (Aug 2026) ----------------------------------------
+    # When the admin is about to SEND, first show the EXACT scope and the number
+    # of students, and require a second click. This is the guard that catches a
+    # too-broad batch — e.g. Year 2 with NO programme code picked, which would mail
+    # EVERY department's second years. Nothing is generated or emailed on this
+    # pass; we just render the confirmation panel with the real count.
+    if do_send and not confirmed:
+        with_email = sum(1 for s in batch if s["email"])
+        programmes, depts, ay, mail = _tokens_context(conn, c)
+        conn.close()
+        pending = {"programme": programme, "dept": dept, "year": year,
+                   "total": len(batch), "with_email": with_email}
+        return render_template("tokens_page.html", cycle=c, programmes=programmes,
+                               depts=depts, ay=ay, dept_names=Config.DEPT_CODES,
+                               mail=mail, pending=pending)
 
     # Open the per-cycle db (Group A token table lives here).
     cy = _open_cycle_db(c)

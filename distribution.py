@@ -104,16 +104,36 @@ def plan_leader(master, user, cycle_code):
 # e.g. "E01  CSE23CT201  Cloud Computing  [POOR]  overall=7.40  n=32". Pure
 # formatting over the offering identity + its classification row.
 # ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# _section_batch(section) -> "Sec A/Batch 1" | "Sec B/Batch 2" | "" (Aug 2026)
+# ----------------------------------------------------------------------------
+# The professor's clarity rule: a lab/course split across sections produces one
+# scored offering PER SECTION, so a teacher can see two lines for the "same"
+# course. Section A is Batch 1, Section B is Batch 2, and so on — spelling this
+# out on every line ("Sec A/Batch 1") removes the confusion. A course with no
+# real section (stored 'NA'/blank) yields an empty string, so single-section
+# courses stay clean.
+def _section_batch(section):
+    s = (section or "").strip().upper()
+    if not s or s in ("NA", "N/A", "-", "NONE"):
+        return ""
+    idx = {"A": "1", "B": "2", "C": "3", "D": "4", "E": "5", "F": "6"}.get(s)
+    return "Sec %s/Batch %s" % (s, idx) if idx else "Sec %s" % s
+
+
 def _band_line(master, oid, cls_row):
     off = master.execute(
-        "SELECT dept_code, course_code, course_name, faculty "
+        "SELECT dept_code, course_code, course_name, faculty, section "
         "FROM offering WHERE id = ?", (oid,)).fetchone()
     band = cls_row["band"] or "INSUFFICIENT"
     score = cls_row["overall_score"]
     score_s = ("%.2f" % score) if score is not None else "n/a"
-    return "  %-4s %-12s %-28s [%s]  overall=%s  n=%s" % (
+    # The section/batch tag gets its own column so two sections of one course read
+    # as "Sec A/Batch 1" and "Sec B/Batch 2" instead of two identical lines.
+    sect = _section_batch(off["section"] if "section" in off.keys() else "")
+    return "  %-4s %-12s %-26s %-14s [%s]  overall=%s  n=%s" % (
         off["dept_code"], off["course_code"],
-        (off["course_name"] or "")[:28], band, score_s, cls_row["n_responses"])
+        (off["course_name"] or "")[:26], sect, band, score_s, cls_row["n_responses"])
 
 
 # ----------------------------------------------------------------------------
@@ -130,7 +150,7 @@ def _score(master, cycle, cycle_row, oid, dl_weight, cache):
     # Watermark at EVERY non-production level (1, 2, 3) — only a promoted level-0
     # production cycle prints clean, official copies (emailer.is_watermarked).
     if res is not None and emailer.is_watermarked(cycle_row):
-        res["watermark"] = "TEST DATA — NOT FOR CIRCULATION"
+        res["watermark"] = "TESTING ONLY"
     cache[oid] = res
     return res
 
