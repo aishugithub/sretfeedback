@@ -49,6 +49,33 @@
       <p style="white-space:pre-wrap">{{ atr.body or '(not yet filed)' }}</p>
     {% endif %}
 
+    {# ---- Endorsement chain so far (Aug 2026) --------------------------------
+       Between the faculty's narrative and THIS reviewer's decision, show every
+       endorsement already made — the HOD's (seen by the Vice Dean), and the HOD's
+       + the Vice Dean's (seen by the Dean) — each with the remark that endorser
+       recorded, or a plain "endorsed — no remarks" when they left it blank. It is
+       built from the ATR's own audit trail (its ENDORSE events), so it can never
+       disagree with what actually happened. Returns are intentionally not repeated
+       here (they still appear in the full audit trail below); this block is the
+       "who has approved it so far, and what they said" story that leads up to the
+       current reviewer's turn. #}
+    {% set endorsements = events | selectattr('action', 'equalto', 'ENDORSE') | list %}
+    {% if endorsements %}
+      <h3>Endorsements so far</h3>
+      {% for e in endorsements %}
+        {% set role_label = {'HOD':'HOD','VICE_DEAN':'Vice Dean','DEAN':'Dean','FACULTY':'Faculty'}.get(e.actor_role, e.actor_role or 'Reviewer') %}
+        <div style="border-left:4px solid #2e7d46; background:#f3faf5; padding:8px 12px; margin:8px 0; border-radius:4px">
+          <div><b>✔ Endorsed by {{ role_label }}</b>{% if e.actor_label %} — {{ e.actor_label }}{% endif %}
+               <span class="muted">· {{ e.at }}</span></div>
+          {% if e.comment %}
+            <div style="white-space:pre-wrap; margin-top:4px">Remarks: {{ e.comment }}</div>
+          {% else %}
+            <div class="muted" style="margin-top:4px">(endorsed — no remarks recorded)</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
+
     {% if actions %}
       <h3>Your decision</h3>
       {% if 'ENDORSE' in actions %}

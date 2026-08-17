@@ -504,6 +504,30 @@ def atr_dashboard():
              else unassigned_rows).append(base)
 
     master.close()
+
+    # ---- Sort the ATR queue so a leader can see "where what stands" (Aug 2026) --
+    # Vice-Dean/Dean dashboards can list many ATRs in mixed states. We order them
+    # so it reads at a glance:
+    #   1. the leader's OWN action items first (owner role == their role), so what
+    #      needs THEM is at the top;
+    #   2. then grouped by workflow state in progression order (EXPECTED → filed →
+    #      PENDING_HOD → PENDING_VD → PENDING_DEAN → CLOSED), so all "waiting on the
+    #      HOD", all "waiting on the VD", etc. sit together;
+    #   3. then by course code, for a stable, readable order within a state.
+    _state_rank = {
+        atr_workflow.STATE_EXPECTED:     0,
+        atr_workflow.STATE_DRAFT:        1,
+        atr_workflow.STATE_PENDING_HOD:  2,
+        atr_workflow.STATE_PENDING_VD:   3,
+        atr_workflow.STATE_PENDING_DEAN: 4,
+        atr_workflow.STATE_CLOSED:       5,
+    }
+    rows.sort(key=lambda r: (
+        0 if r["mine"] else 1,                              # my action items first
+        _state_rank.get(r["atr"]["state"], 9),              # then by workflow state
+        (r["offering"]["course_code"] or ""),               # then by course
+    ))
+
     # How many ATRs are in THIS leader's action queue right now (owner == role)?
     # Drives the "Endorse all (N)" button, shown only to whole-slate endorsers.
     my_count = sum(1 for r in rows if r["mine"])
