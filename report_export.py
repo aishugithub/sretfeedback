@@ -131,23 +131,48 @@ def build_view_model(result):
     if o["semester"]:
         year_term += f" - Sem {o['semester']}"
     section = _section_batch(o["section"] if "section" in o.keys() else "")
+
+    # ---- CONSOLIDATED-ELECTIVE header (Aug 2026 change) ----------------------
+    # When this report was produced by scoring.score_offering_group over a pooled
+    # elective delivery, `result["is_consolidated"]` is True and
+    # `result["group_dept_codes"]` lists every programme code that sat in the one
+    # class (e.g. ['E01','E02','E03']). In that case the PROGRAM CODE line shows
+    # ALL of them and the PROGRAMME line names the elective basket it was pooled
+    # across — instead of the anchor's single programme, which would misleadingly
+    # read as if only that programme were surveyed. A normal (non-elective) report
+    # keeps exactly its previous single-programme header.
+    is_consolidated = bool(result.get("is_consolidated"))
+    group_codes = result.get("group_dept_codes") or (
+        [o["dept_code"]] if (o["dept_code"] or "") else [])
+    basket = o["elective_basket"] if "elective_basket" in o.keys() else None
+    if is_consolidated:
+        dept_code_display = ", ".join(group_codes)
+        programme_display = (
+            "Elective basket %s — pooled across %s"
+            % (("'%s'" % basket) if basket else "(elective)", ", ".join(group_codes)))
+    else:
+        # Show the OFFICIAL expanded programme name looked up by programme code
+        # (Config.PROGRAMMES, kept current Aug 2026), falling back to the stored
+        # value if the code is unknown.
+        dept_code_display = o["dept_code"] or ""
+        programme_display = (Config.PROGRAMMES.get(o["dept_code"] or "", (None,))[0]
+                             or o["programme"] or "")
+
     header = {
         "section": section,
         "academic_year": o["academic_year"],
         "year_term": year_term,
         "course_code": o["course_code"] or "",
         "course_name": (o["course_name"] or "").upper(),
-        # Show the OFFICIAL expanded programme name looked up by programme code
-        # (Config.PROGRAMMES, kept current Aug 2026), so the report reads e.g.
-        # "B.Tech Computer Science and Medical Engineering (Artificial Intelligence
-        # and Data Analytics)" rather than whatever short/old text the allocation
-        # happened to carry. Falls back to the stored value if the code is unknown.
-        "programme": (Config.PROGRAMMES.get(o["dept_code"] or "", (None,))[0]
-                      or o["programme"] or ""),
-        "dept_code": o["dept_code"] or "",
+        "programme": programme_display,
+        "dept_code": dept_code_display,
         "faculty": _name_titled(o["faculty"] or ""),
         "category": result.get("report_key") or "",
         "category_name": o["category_name"] if "category_name" in o.keys() else "",
+        # Carried so a renderer could badge the report as a pooled elective; the
+        # current layouts read it implicitly through the fields above.
+        "is_consolidated": is_consolidated,
+        "elective_basket": basket if is_consolidated else None,
     }
 
     # --- 2b. Section score rows (report section title + /10 score). ----------
@@ -486,7 +511,10 @@ def safe_filename(result, ext):
     # dept/year/code/faculty — or a batch that repeats one — never collide on
     # the same archive filename.
     oid = o["id"] if ("id" in o.keys()) else None
-    parts = [o["dept_code"] or "NA", f"Y{o['year_of_study']}",
+    # For a pooled elective the anchor's single dept_code would be misleading in the
+    # filename, so we label it 'ELECTIVE' (the report itself lists every programme).
+    dept_part = "ELECTIVE" if result.get("is_consolidated") else (o["dept_code"] or "NA")
+    parts = [dept_part, f"Y{o['year_of_study']}",
              o["course_code"] or "NOCODE", (o["faculty"] or "NoFaculty")]
     if oid is not None:
         parts.append(f"id{oid}")

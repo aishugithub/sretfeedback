@@ -40,6 +40,7 @@ from atr import atr_bp
 
 import atr_workflow
 import faculty_tokens
+import consolidation   # Aug 2026: group an elective's per-programme offerings into ONE delivery
 import auth_leaders
 import notifications
 import rbac
@@ -402,9 +403,23 @@ def atr_dashboard():
         cy = _open_cycle_db(selected)
         atrs = cy.execute("SELECT * FROM atr").fetchall()
         cy.close()
+        # Combined programme label ("E01, E02, E03") for every offering_id that is
+        # part of a pooled elective delivery (Aug 2026), so both the ATR queue and
+        # the all-reports list below show the whole class rather than one programme.
+        elective_dept_by_oid = {}
+        for _a, _g in consolidation.group_rows(visible).items():
+            if _g["is_elective"]:
+                _lbl = ", ".join(_g["dept_codes"])
+                for _oid in _g["oids"]:
+                    elective_dept_by_oid[_oid] = _lbl
         for a in atrs:
             if a["offering_id"] in visible_ids:     # RBAC filter
-                o = visible_ids[a["offering_id"]]
+                # One ATR exists per delivery (created only at the anchor), so this
+                # loop already yields one queue row per class. Show the combined
+                # programme label for an elective anchor.
+                o = dict(visible_ids[a["offering_id"]])
+                if a["offering_id"] in elective_dept_by_oid:
+                    o["dept_code"] = elective_dept_by_oid[a["offering_id"]]
                 rows.append({
                     "atr": a, "offering": o,
                     "mine": a["current_owner_role"] == leader["role"],
@@ -424,14 +439,27 @@ def atr_dashboard():
             "FROM offering_classification WHERE cycle_code = ?",
             (selected["code"],)).fetchall()
         cls_map = {r["offering_id"]: r for r in cls_rows}
-        for o in visible:
-            info = cls_map.get(o["id"])
+        # CONSOLIDATED (Aug 2026): collapse the visible offerings into deliveries so
+        # a shared elective shows as ONE row (all its programmes), not one row per
+        # programme. The delivery's band/score/count come from the single
+        # classification row that lives on its responded anchor; the display row and
+        # the report link use the smallest-id member (members_of pools it back).
+        for _anchor, g in consolidation.group_rows(visible).items():
+            info = None
+            for oid in g["oids"]:                 # the one classified member = anchor
+                if oid in cls_map:
+                    info = cls_map[oid]
+                    break
+            disp = dict(g["rows"][0])             # smallest-id member for identity/link
+            if g["is_elective"]:
+                disp["dept_code"] = ", ".join(g["dept_codes"])
             all_offerings.append({
-                "offering": o,
+                "offering": disp,
                 "band": info["band"] if info else None,
                 "overall_score": info["overall_score"] if info else None,
                 "n_responses": info["n_responses"] if info else None,
-                "has_atr": o["id"] in atr_oids,
+                # An ATR exists for the delivery if any member id has one (the anchor).
+                "has_atr": any(oid in atr_oids for oid in g["oids"]),
             })
 
     # (Module 5) EXTERNAL / UNASSIGNED sections — only for college-wide leaders
@@ -442,8 +470,12 @@ def atr_dashboard():
     # their own sections with their GOOD/POOR band for the VD's attention.
     external_rows, unassigned_rows = [], []
     if rbac.allowed_dept_codes(leader) is None and selected is not None:
+        # NB: we also select the columns consolidation.group_rows needs
+        # (course_type, elective_basket, cycle_code, section) so these lists can be
+        # collapsed to one row per delivery just like the others (Aug 2026).
         q = master.execute(
-            "SELECT o.id, o.dept_code, o.course_code, o.course_name, o.faculty, "
+            "SELECT o.id, o.cycle_code, o.dept_code, o.course_code, o.course_name, "
+            "       o.course_type, o.elective_basket, o.section, o.faculty, "
             "       o.faculty_id, f.home_dept_code AS eff_dept, "
             "       oc.band AS band, oc.overall_score AS overall_score, "
             "       oc.n_responses AS n_responses "
@@ -455,9 +487,21 @@ def atr_dashboard():
             "  AND (f.home_dept_code IS NULL OR f.home_dept_code = ?) "
             "ORDER BY o.dept_code, o.course_code",
             (selected["code"], rbac.DEPT_EXTERNAL)).fetchall()
-        for r in q:
-            (external_rows if r["eff_dept"] == rbac.DEPT_EXTERNAL
-             else unassigned_rows).append(r)
+        # Collapse to deliveries: an elective's programme rows fold into one line.
+        for _anchor, g in consolidation.group_rows(q).items():
+            # The band/score live on the delivery's classified anchor — find the one
+            # member row that carries a band (others have NULL from the LEFT JOIN).
+            info_row = next((r for r in g["rows"] if r["band"] is not None), None)
+            base = dict(g["rows"][0])
+            if g["is_elective"]:
+                base["dept_code"] = ", ".join(g["dept_codes"])
+            base["band"] = info_row["band"] if info_row else None
+            base["overall_score"] = info_row["overall_score"] if info_row else None
+            base["n_responses"] = info_row["n_responses"] if info_row else None
+            # All members share one faculty ⇒ one effective dept ⇒ one bucket.
+            eff = g["rows"][0]["eff_dept"]
+            (external_rows if eff == rbac.DEPT_EXTERNAL
+             else unassigned_rows).append(base)
 
     master.close()
     # How many ATRs are in THIS leader's action queue right now (owner == role)?
@@ -519,7 +563,12 @@ def atr_report(cycle_code, offering_id, fmt):
 
     cy = _open_cycle_db(cyc)
     dl_weight = scoring.get_discussed_late_weight(master)
-    result = scoring.score_offering(master, cy, offering_id, dl_weight)
+    # CONSOLIDATED (Aug 2026): resolve the offering to its whole delivery and pool
+    # every member's responses, so a leader downloads the single consolidated
+    # elective report (not one programme's slice). A CORE course pools to itself,
+    # so its report is byte-for-byte what it was before.
+    member_ids = consolidation.members_of(master, cy, cycle_code, offering_id)
+    result = scoring.score_offering_group(master, cy, member_ids, dl_weight)
     cy.close(); master.close()
 
     # Test cycles stamp the same "TEST DATA" watermark the admin PDF uses (§9.1).

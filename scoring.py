@@ -571,6 +571,93 @@ def score_offering(master, cycle, offering_id, discussed_late_weight=None):
     return result
 
 
+# ============================================================================
+# SECTION 4b — CONSOLIDATED (ELECTIVE) SCORING : pool many offerings into ONE
+# ============================================================================
+# score_offering_group(master, cycle, offering_ids, discussed_late_weight)
+# ----------------------------------------------------------------------------
+# WHY THIS EXISTS (Aug 2026 — the elective-consolidation change): a shared
+# elective is stored as several `offering` rows (one per programme code) that are
+# really ONE class. `score_offering` above scores a single offering over only that
+# programme's students, which is exactly what produced three thin reports for one
+# elective. This function scores a whole DELIVERY — the set of offering_ids that
+# consolidation.py grouped together — as one report.
+#
+# HOW IT STAYS MATHEMATICALLY CORRECT: it does NOT average the three programmes'
+# scores together (an average-of-averages is wrong when the programmes have
+# different head-counts). Instead it POOLS the raw responses — concatenating every
+# member offering's list of submitted forms — and calls the SAME frozen pure
+# `compute_scores` once over the combined list. Every denominator (the "students
+# recorded" count, each question's answered-count, the syllabus fraction mean) is
+# then computed over the whole class exactly as if those students had always been
+# one offering. Because compute_scores is untouched, verify_scoring.py still holds
+# and a single-offering group scores identically to score_offering().
+#
+# WHY POOLING IS SAFE ACROSS THE MEMBERS: all members of an elective delivery are
+# the same course in the same category, so they share one template_version, and a
+# question's `id` is stable across offerings of that category (questions belong to
+# the template version, not the offering). So the response dicts from different
+# members use the SAME question-id keys and pool cleanly.
+#
+# RETURNS the usual `result` dict (same shape score_offering returns) PLUS three
+# consolidation fields the report layer reads to render a pooled header:
+#   result["group_offering_ids"] : the member ids that were pooled (sorted)
+#   result["is_consolidated"]    : True when more than one offering was pooled
+#   result["group_dept_codes"]   : every programme code in the delivery, in order
+# `result["offering"]` is set to the ANCHOR (smallest-id) member's identity row, so
+# the report filename/footer are stable, while the header also shows all programmes.
+# Returns None if none of the ids yield a scoreable dataset.
+# ----------------------------------------------------------------------------
+def score_offering_group(master, cycle, offering_ids, discussed_late_weight=None):
+    # Normalise to a sorted, de-duplicated id list; the smallest is the anchor.
+    ids = sorted(set(int(o) for o in offering_ids))
+    if not ids:
+        return None
+
+    pooled_responses = []          # every member's submitted forms, concatenated
+    report_key = None              # the shared category's report layout key
+    questions = None               # the shared question set (same template version)
+    anchor_offering = None         # identity row of the smallest-id member
+    dept_codes = []                # programme codes, in ascending-id member order
+
+    for oid in ids:
+        loaded = load_offering_dataset(master, cycle, oid)
+        if loaded is None:
+            continue               # missing offering — skip it, pool the rest
+        offering, rk, qs, responses = loaded
+
+        # Record each member's programme code for the consolidated header, keeping
+        # the ascending-id order and dropping blanks/duplicates.
+        dc = (offering["dept_code"] or "").strip() if "dept_code" in offering.keys() else ""
+        if dc and dc not in dept_codes:
+            dept_codes.append(dc)
+
+        # The first member that actually has a category + questions fixes the
+        # report layout and question set for the whole pool. Because ids is sorted
+        # ascending, that first usable member IS the anchor's dataset, so the
+        # report identity is the anchor's.
+        if rk is not None and qs:
+            if report_key is None:
+                report_key, questions = rk, qs
+                anchor_offering = offering
+            pooled_responses.extend(responses)
+
+    # Nothing scoreable across the whole delivery (all uncategorised/template-less).
+    if report_key is None or not questions:
+        return None
+
+    # ONE call to the frozen engine over the POOLED responses — the whole point.
+    result = compute_scores(report_key, questions, pooled_responses,
+                            discussed_late_weight)
+    result["offering"] = anchor_offering       # stable anchor identity
+    result["questions"] = questions
+    # Consolidation metadata the report/view layer uses to render the pooled header.
+    result["group_offering_ids"] = ids
+    result["is_consolidated"] = len(ids) > 1
+    result["group_dept_codes"] = dept_codes
+    return result
+
+
 # ----------------------------------------------------------------------------
 # get_discussed_late_weight(master)  —  read the configurable open item
 # ----------------------------------------------------------------------------

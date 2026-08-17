@@ -66,9 +66,20 @@
             <button class="btn" type="submit">Submit note &amp; endorse ▲</button>
           </form>
         {% else %}
-          <form class="inline" method="post"
+          {# Optional remarks on ENDORSE (Aug 2026): the endorser gets a space to
+             record a comment before accepting — not just when returning. The
+             backend (atr.atr_act) already reads `comment` for any action and writes
+             it to the audit trail (atr_event.comment) AND passes it as the reason on
+             the notification to the next level, so no route change is needed; this
+             textarea simply lets them fill it in. It is OPTIONAL, so a plain endorse
+             with no remark still works exactly as before. #}
+          <form method="post"
                 action="{{ url_for('atr.atr_act', cycle_code=cycle.code, atr_id=atr.id, action='endorse') }}">
-            <input type="hidden" name="comment" value="">
+            <div class="field">
+              <label for="endorse_comment">Remarks (optional) — recorded in the audit trail</label>
+              <textarea id="endorse_comment" name="comment" rows="3"
+                        placeholder="Add any comment you want on record before endorsing (optional)."></textarea>
+            </div>
             <button class="btn" type="submit">Endorse ▲</button>
           </form>
         {% endif %}

@@ -31,6 +31,7 @@ import db
 import emailer
 import atr_workflow
 import rbac
+import consolidation   # Aug 2026: one audit row per delivery (electives pooled)
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -152,14 +153,40 @@ def gather(master, cycle_row):
         "  ON oc.offering_id=o.id AND oc.cycle_code=o.cycle_code "
         "WHERE o.cycle_code=? ORDER BY o.dept_code, o.course_code",
         (code,)).fetchall()
+    # CONSOLIDATED (Aug 2026): collapse offerings into deliveries so the audit lists
+    # one row per real class. An elective's per-programme rows fold into a single
+    # row whose score/band/count come from the delivery's classified anchor and
+    # whose programme column names every programme it served. A CORE course is its
+    # own delivery, so its audit row is unchanged.
+    off_groups = consolidation.group_rows(offs)
+    # A lookup so the ATR table below can also show an elective's combined
+    # programme label against its (anchor) ATR row.
+    elective_dept_by_oid = {}
+    for _a, _g in off_groups.items():
+        if _g["is_elective"]:
+            _lbl = ", ".join(_g["dept_codes"])
+            for _oid in _g["oids"]:
+                elective_dept_by_oid[_oid] = _lbl
+
     courses = []
-    for o in offs:
-        n = o["n_responses"] if o["n_responses"] is not None else resp_by_off.get(o["id"], 0)
+    for _a, g in off_groups.items():
+        # The one member carrying a band is the delivery's classified anchor.
+        info = next((r for r in g["rows"] if r["band"] is not None), None)
+        anchor_row = g["rows"][0]
+        # Pooled feedback count: the classification's pooled number when present,
+        # else the sum of raw response counts across the delivery's members.
+        if info is not None and info["n_responses"] is not None:
+            n = info["n_responses"]
+        else:
+            n = sum(resp_by_off.get(oid, 0) for oid in g["oids"])
+        dept = ", ".join(g["dept_codes"]) if g["is_elective"] else anchor_row["dept_code"]
         courses.append({
-            "dept": o["dept_code"], "course_code": o["course_code"],
-            "course_name": o["course_name"] or "",
-            "faculty": _faculty_name(master, o),
-            "n": n, "score": o["overall_score"], "band": o["band"],
+            "dept": dept, "course_code": anchor_row["course_code"],
+            "course_name": anchor_row["course_name"] or "",
+            "faculty": _faculty_name(master, anchor_row),
+            "n": n,
+            "score": info["overall_score"] if info else None,
+            "band": info["band"] if info else None,
         })
     data["courses"] = courses
     data["n_courses"] = len(courses)
@@ -186,7 +213,10 @@ def gather(master, cycle_row):
                 e["action"].title(), who,
                 (": " + e["comment"]) if e["comment"] else "", _ist_str(e["at"])))
         atrs.append({
-            "dept": o["dept_code"], "course_code": o["course_code"],
+            # One ATR per delivery (created at the anchor); show the elective's
+            # combined programme label when applicable.
+            "dept": elective_dept_by_oid.get(a["offering_id"], o["dept_code"]),
+            "course_code": o["course_code"],
             "course_name": o["course_name"] or "",
             "faculty": _faculty_name(master, o),
             "state": a["state"], "body": a["body"] or "(no explanation recorded)",

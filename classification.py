@@ -32,7 +32,8 @@
 # and it, not us, is the only thing that opens the per-cycle answer file.
 # ----------------------------------------------------------------------------
 
-import scoring   # the frozen Version 1.0 engine — we consume its output, never edit it
+import scoring        # the frozen Version 1.0 engine — we consume its output, never edit it
+import consolidation  # Aug 2026: groups an elective's per-programme offerings into ONE delivery
 
 
 # Verdict constants — used everywhere instead of bare strings so a typo becomes
@@ -227,23 +228,47 @@ def classify_cycle(master, cycle, cycle_row, discussed_late_weight=None):
 
     summary = {"good": 0, "poor": 0, "insufficient": 0, "skipped": 0, "total": 0}
 
-    for offering_id in _offering_ids_with_responses(cycle):
+    # ---- DELIVERY-AWARE banding (Aug 2026 elective-consolidation change) ------
+    # We no longer band each offering row on its own. Instead we group the cycle's
+    # responded offerings into DELIVERIES (consolidation.py): a CORE/LAB/PROJECT
+    # offering is its own delivery (unchanged), while an ELECTIVE's several
+    # per-programme rows collapse into ONE delivery whose responses are pooled. We
+    # then band each delivery ONCE, from the pooled score, and record that single
+    # verdict against the delivery's ANCHOR offering (its smallest offering_id).
+    # This is what makes "one class → one band → one ATR" true for a shared
+    # elective; a POOR band on the anchor is the single ATR trigger for the whole
+    # delivery. The non-anchor member offerings deliberately get NO classification
+    # row — they are represented by the anchor everywhere downstream.
+    groups = consolidation.deliveries_with_responses(master, cycle, cycle_code)
+
+    # AUTHORITATIVE RE-GENERATION: wipe this cycle's existing verdicts first, so no
+    # stale per-programme rows survive from an earlier (pre-consolidation) run and
+    # get double-counted by the dashboards. classify_cycle is the sole writer of
+    # offering_classification and is re-runnable by design, so clearing the cycle's
+    # rows before rewriting is safe — it is derived data, never student feedback.
+    # (We do NOT commit here; the caller wraps the whole run in one transaction.)
+    master.execute(
+        "DELETE FROM offering_classification WHERE cycle_code = ?", (cycle_code,))
+
+    for anchor_id, grp in groups.items():
         summary["total"] += 1
 
-        # Ask the frozen engine for this offering's scores. It returns None for an
-        # uncategorised or template-less offering (nothing to score) — we skip
-        # those, exactly as the report engine does.
-        result = scoring.score_offering(master, cycle, offering_id,
-                                        discussed_late_weight)
+        # Score the WHOLE delivery as one pooled report (electives pooled across
+        # programmes; a singleton delivery scores exactly as before). None means
+        # uncategorised/template-less — skip, exactly as the report engine does.
+        result = scoring.score_offering_group(
+            master, cycle, grp["oids"], discussed_late_weight)
         if result is None:
             summary["skipped"] += 1
             continue
 
         overall_score = result["overall"]
+        # Pooled count of submitted forms across the delivery — the correct
+        # denominator for the tiny-sample guard on a shared elective class.
         n_responses = result["n_responses"]
         section_scores = result["section_scores"]   # list of {key,title,score,...}
 
-        # The pure §6 verdict.
+        # The pure §6 verdict, unchanged — just fed pooled numbers now.
         band_value = band(overall_score, n_responses, threshold_overall,
                           threshold_section, section_scores, min_responses)
 
@@ -253,7 +278,8 @@ def classify_cycle(master, cycle, cycle_row, discussed_late_weight=None):
         reason = _reason(band_value, overall_score, n_responses,
                          threshold_overall, threshold_section, section_values)
 
-        record_band(master, offering_id, cycle_code, band_value, overall_score,
+        # ONE verdict row, keyed to the delivery's anchor offering_id.
+        record_band(master, anchor_id, cycle_code, band_value, overall_score,
                     n_responses, threshold_overall, threshold_section,
                     min_responses, reason)
 

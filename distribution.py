@@ -33,6 +33,7 @@ import emailer
 import faculty_tokens
 import atr_workflow
 import classification
+import consolidation   # Aug 2026: pool an elective's per-programme offerings into ONE delivery
 import rbac
 import report_export
 import scoring
@@ -121,7 +122,7 @@ def _section_batch(section):
     return "Sec %s/Batch %s" % (s, idx) if idx else "Sec %s" % s
 
 
-def _band_line(master, oid, cls_row):
+def _band_line(master, oid, cls_row, dept_codes=None):
     off = master.execute(
         "SELECT dept_code, course_code, course_name, faculty, section "
         "FROM offering WHERE id = ?", (oid,)).fetchone()
@@ -131,8 +132,15 @@ def _band_line(master, oid, cls_row):
     # The section/batch tag gets its own column so two sections of one course read
     # as "Sec A/Batch 1" and "Sec B/Batch 2" instead of two identical lines.
     sect = _section_batch(off["section"] if "section" in off.keys() else "")
-    return "  %-4s %-12s %-26s %-14s [%s]  overall=%s  n=%s" % (
-        off["dept_code"], off["course_code"],
+    # CONSOLIDATED ELECTIVE (Aug 2026): when this offering is the anchor of a pooled
+    # elective delivery, `dept_codes` is the comma-joined list of ALL programmes in
+    # the class (e.g. "E01, E02, E03"), so the line shows the whole audience rather
+    # than just the anchor's one programme. For a normal offering dept_codes is None
+    # and we fall back to its own single code. The n= count is already the pooled
+    # total because it comes from the anchor's (delivery-level) classification row.
+    prog = dept_codes if dept_codes else off["dept_code"]
+    return "  %-12s %-12s %-26s %-14s [%s]  overall=%s  n=%s" % (
+        (prog or "")[:12], off["course_code"],
         (off["course_name"] or "")[:26], sect, band, score_s, cls_row["n_responses"])
 
 
@@ -143,15 +151,19 @@ def _band_line(master, oid, cls_row):
 # cycle it stamps the 'TEST DATA' watermark on the result so any PDF built from it
 # carries the mark (§9.1). Returns None for an unscoreable offering.
 # ----------------------------------------------------------------------------
-def _score(master, cycle, cycle_row, oid, dl_weight, cache):
-    if oid in cache:
-        return cache[oid]
-    res = scoring.score_offering(master, cycle, oid, dl_weight)
+def _score(master, cycle, cycle_row, anchor_oid, member_oids, dl_weight, cache):
+    # DELIVERY-LEVEL scoring (Aug 2026): score the whole delivery — the set of
+    # member offering_ids — as ONE pooled report via score_offering_group. For a
+    # singleton (CORE/LAB/PROJECT) delivery member_oids is just [anchor_oid], so
+    # the pooled scorer reduces to the old per-offering score. Cached by anchor id.
+    if anchor_oid in cache:
+        return cache[anchor_oid]
+    res = scoring.score_offering_group(master, cycle, member_oids, dl_weight)
     # Watermark at EVERY non-production level (1, 2, 3) — only a promoted level-0
     # production cycle prints clean, official copies (emailer.is_watermarked).
     if res is not None and emailer.is_watermarked(cycle_row):
         res["watermark"] = "TESTING ONLY"
-    cache[oid] = res
+    cache[anchor_oid] = res
     return res
 
 
@@ -204,13 +216,17 @@ def _is_external_offering(master, offering_id):
 
 
 def _faculty_body(master, cycle, cycle_row, faculty_email, oids, classified,
-                  base, intro):
+                  base, intro, dept_by_anchor=None):
+    # `oids` are delivery ANCHORS (one per real class; an elective's per-programme
+    # rows already collapsed to their anchor). `dept_by_anchor` maps an elective
+    # anchor -> "E01, E02, E03" so its line shows every programme in the class.
+    dept_by_anchor = dept_by_anchor or {}
     lines = [intro.strip() if (intro and intro.strip()) else "Dear Faculty,", ""]
     lines += ["Your student-feedback results for %s:" % cycle_row["label"], ""]
     any_poor = False
     for oid in oids:
         cls = classified[oid]
-        lines.append(_band_line(master, oid, cls))
+        lines.append(_band_line(master, oid, cls, dept_codes=dept_by_anchor.get(oid)))
         if cls["band"] == classification.BAND_POOR:
             any_poor = True
             # EXTERNAL-FACULTY rule: a course taught by the "External" placeholder
@@ -245,13 +261,18 @@ def _faculty_body(master, cycle, cycle_row, faculty_email, oids, classified,
 # leader: a header plus one _band_line per offering in their RBAC scope, with a
 # small GOOD/POOR/insufficient tally. Pure formatting.
 # ----------------------------------------------------------------------------
-def _leader_body(master, cycle_row, oids, title):
+def _leader_body(master, cycle_row, oids, title, dept_by_anchor=None):
+    # `oids` are delivery anchors (electives already pooled to one row each), so a
+    # leader roll-up shows one line per real class. `dept_by_anchor` supplies the
+    # combined "E01, E02, E03" programme label for elective anchors.
+    dept_by_anchor = dept_by_anchor or {}
     classified = classified_offerings(master, cycle_row["code"])
     good = poor = insf = 0
     body_lines = []
     for oid in oids:
         cls = classified[oid]
-        body_lines.append(_band_line(master, oid, cls))
+        body_lines.append(_band_line(master, oid, cls,
+                                     dept_codes=dept_by_anchor.get(oid)))
         if cls["band"] == classification.BAND_GOOD:
             good += 1
         elif cls["band"] == classification.BAND_POOR:
@@ -315,6 +336,20 @@ def distribute_cycle(master, cycle, cycle_row, base_url=None, roles=None,
     if not classified:
         return summary  # nothing scored/banded → nothing to distribute
 
+    # ---- Delivery grouping (Aug 2026 elective-consolidation change) ----------
+    # classification now writes ONE verdict per delivery, at its anchor offering
+    # (an elective's per-programme rows collapse to their smallest offering_id). To
+    # build each delivery's report we must POOL its member offerings' responses, so
+    # here we re-derive the full membership. Grouping is over the cycle's responded
+    # offerings — exactly the universe classification grouped over — so every anchor
+    # here matches a classification anchor, and elective siblings map to the same
+    # anchor. `dept_by_anchor` gives an elective anchor its full "E01, E02, E03"
+    # programme label for the summary lines.
+    deliveries = consolidation.deliveries_with_responses(master, cycle, cycle_code)
+    members_by_anchor = {a: g["oids"] for a, g in deliveries.items()}
+    dept_by_anchor = {a: consolidation.dept_codes_str(g)
+                      for a, g in deliveries.items() if g["is_elective"]}
+
     # ---- 0b. EXTERNAL-FACULTY ATRs (professor's rule) -----------------------
     # Independently of the faculty fan-out below (which may be skipped, or may
     # never run for a blank-email External teacher in production), make sure every
@@ -371,14 +406,17 @@ def distribute_cycle(master, cycle, cycle_row, base_url=None, roles=None,
             if not to_addr:
                 continue
             oids = sorted(g["oids"])
-            # Score each course, then build ONE combined PDF for this teacher.
+            # Score each DELIVERY (electives pooled across their programmes), then
+            # build ONE combined PDF for this teacher. members_by_anchor maps an
+            # anchor to all offering_ids to pool; a singleton falls back to [oid].
             results = [r for r in
-                       (_score(master, cycle, cycle_row, oid, dl_weight, score_cache)
+                       (_score(master, cycle, cycle_row, oid,
+                               members_by_anchor.get(oid, [oid]), dl_weight, score_cache)
                         for oid in oids) if r is not None]
             attachments = ([_combined_pdf(results, g["faculty"] or g["email"], cycle_row)]
                            if results else [])
             body = _faculty_body(master, cycle, cycle_row, g["email"], oids,
-                                 classified, base, email_intro)
+                                 classified, base, email_intro, dept_by_anchor)
             # When redirecting for a test, note who the mail was really meant for.
             if redirect_to and (g["email"] or g["faculty"]):
                 body = ("*** TEST REDIRECT — intended for: %s ***\n\n"
@@ -418,7 +456,7 @@ def distribute_cycle(master, cycle, cycle_row, base_url=None, roles=None,
             if not oids:
                 continue
             body = _leader_body(master, cycle_row, oids,
-                                "Departmental feedback roll-up")
+                                "Departmental feedback roll-up", dept_by_anchor)
             leader_messages.append({"to": hod["email"], "body": body})
 
     # Vice Dean(s) + Dean: college-wide roll-up (scope resolves to all via rbac).
@@ -435,7 +473,7 @@ def distribute_cycle(master, cycle, cycle_row, base_url=None, roles=None,
             title = ("College feedback roll-up (Vice Dean)"
                      if role == atr_workflow.ROLE_VICE_DEAN
                      else "College feedback roll-up (Dean)")
-            body = _leader_body(master, cycle_row, oids, title)
+            body = _leader_body(master, cycle_row, oids, title, dept_by_anchor)
             leader_messages.append({"to": ldr["email"], "body": body})
 
     if leader_messages:

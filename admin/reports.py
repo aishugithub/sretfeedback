@@ -34,6 +34,7 @@ from config import Config
 from admin import admin_bp
 import scoring
 import report_export
+import consolidation   # Aug 2026: collapse an elective's per-programme rows into ONE delivery
 import services  # noqa: F401  (imported by scoring's adapter; keep available)
 
 
@@ -78,6 +79,36 @@ def _offerings_with_responses(master, cycle):
     return [{"offering": o, "n_responses": counts[o["id"]]} for o in offerings]
 
 
+# ----------------------------------------------------------------------------
+# _deliveries_from_items(items) — collapse per-offering rows into DELIVERIES.
+# ----------------------------------------------------------------------------
+# (Aug 2026 elective-consolidation change.) Given the per-offering items from
+# _offerings_with_responses (each a full offering row + its own response count),
+# group them into deliveries via consolidation.group_rows: a CORE/LAB/PROJECT
+# offering stays its own delivery, while an elective's per-programme rows fold into
+# one. Each returned delivery carries the ANCHOR's full offering row (for identity,
+# category and report_key), the POOLED response count, the member offering_ids to
+# score together, and the combined programme-code list. Ordered by anchor id so the
+# reports list is stable. Reuses the already-fetched rows — no extra DB query.
+# ----------------------------------------------------------------------------
+def _deliveries_from_items(items):
+    by_oid = {it["offering"]["id"]: it for it in items}
+    groups = consolidation.group_rows([it["offering"] for it in items])
+    out = []
+    for anchor, g in groups.items():
+        pooled_n = sum(by_oid[o]["n_responses"] for o in g["oids"] if o in by_oid)
+        out.append({
+            "anchor": anchor,
+            "oids": g["oids"],
+            "offering": g["rows"][0],          # anchor's full row (smallest id)
+            "rows": g["rows"],                 # all member rows (for batch filtering)
+            "n_responses": pooled_n,           # pooled across the delivery
+            "is_elective": g["is_elective"],
+            "dept_codes": g["dept_codes"],
+        })
+    return out
+
+
 # ============================================================================
 # GET /admin/reports  —  the reports landing page (choose cycle -> see offerings)
 # ============================================================================
@@ -108,8 +139,17 @@ def reports_home():
     if selected is not None and os.path.exists(
             db.cycle_db_path(selected["academic_year"], selected["code"])):
         cy = _open_cycle_db(selected)
-        items = _offerings_with_responses(master, cy)
+        raw = _offerings_with_responses(master, cy)
         cy.close()
+        # Collapse to ONE row per delivery (Aug 2026): an elective's per-programme
+        # offerings become a single line showing every programme code it served and
+        # the pooled response count. The row links to the anchor offering; the
+        # report route pools the whole delivery when generating the file.
+        for d in _deliveries_from_items(raw):
+            o = dict(d["offering"])            # mutable copy of the anchor row
+            if d["is_elective"]:
+                o["dept_code"] = ", ".join(d["dept_codes"])
+            items.append({"offering": o, "n_responses": d["n_responses"]})
 
     master.close()
     # Programme-code + Year filters now show the FULL, stable lists — every degree
@@ -141,7 +181,13 @@ def report_one(cycle_id, offering_id, fmt):
     # The configurable "Discussed Late" weight (spec Open Item 14.2) is read once
     # and passed in, so the report matches whatever the professor has set.
     dl_weight = scoring.get_discussed_late_weight(master)
-    result = scoring.score_offering(master, cy, offering_id, dl_weight)
+    # CONSOLIDATED (Aug 2026): resolve this offering to its whole delivery and pool
+    # every member's responses into one report. For a CORE course the delivery is
+    # just this offering, so the output is identical to before; for an elective the
+    # download is the single pooled report across all its programmes — even if the
+    # link happened to point at a non-anchor programme row.
+    member_ids = consolidation.members_of(master, cy, cyc["code"], offering_id)
+    result = scoring.score_offering_group(master, cy, member_ids, dl_weight)
     cy.close(); master.close()
     # Test cycles stamp a diagonal "TEST DATA" watermark on the PDF (spec §9.1).
     if result is not None and cyc["is_test"]:
@@ -200,21 +246,27 @@ def report_bulk(cycle_id, fmt):
     year = request.args.get("year", "").strip()
 
     items = _offerings_with_responses(master, cy)
-    # Apply the optional batch filters.
-    def keep(o):
+    # CONSOLIDATED batch (Aug 2026): collapse to deliveries first, then produce ONE
+    # pooled report per delivery. A delivery is kept if ANY of its member offerings
+    # matches the batch filter — so a 'dept=E01' filter still includes the shared
+    # E01/E02/E03 elective, exactly once, pooled across its programmes.
+    deliveries = _deliveries_from_items(items)
+
+    def match(o):
         if programme and o["programme"] != programme:
             return False
-        if dept and o["dept_code"] != dept:
+        if dept and (o["dept_code"] or "") != dept:
             return False
         if year and str(o["year_of_study"]) != year:
             return False
         return True
-    items = [it for it in items if keep(it["offering"])]
+
+    kept = [d for d in deliveries if any(match(r) for r in d["rows"])]
 
     dl_weight = scoring.get_discussed_late_weight(master)
     results = []
-    for it in items:
-        res = scoring.score_offering(master, cy, it["offering"]["id"], dl_weight)
+    for d in kept:
+        res = scoring.score_offering_group(master, cy, d["oids"], dl_weight)
         if res is not None and cyc["is_test"]:
             res["watermark"] = "TESTING ONLY"
         if res is not None:
