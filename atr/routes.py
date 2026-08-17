@@ -43,6 +43,21 @@ import faculty_tokens
 import auth_leaders
 import notifications
 import rbac
+import datetime as _dt
+
+
+def _ist(ts):
+    """Show a stored UTC timestamp ('YYYY-MM-DD HH:MM:SS' from SQLite
+    datetime('now')) in IST. India is a fixed UTC+5:30 (no DST), so this is exact
+    whatever timezone the server runs in. Unparseable input is returned as-is."""
+    if not ts:
+        return ts
+    try:
+        d = _dt.datetime.strptime(str(ts)[:19], "%Y-%m-%d %H:%M:%S")
+        return (d + _dt.timedelta(hours=5, minutes=30)).strftime(
+            "%Y-%m-%d %H:%M:%S") + " IST"
+    except Exception:
+        return ts
 
 
 # ----------------------------------------------------------------------------
@@ -614,7 +629,7 @@ def atr_review(cycle_code, atr_id):
             label = u["name"] if u else ("User #%s" % aid)
             role = u["role"] if u else None
         events_view.append({"action": e["action"], "comment": e["comment"],
-                            "at": e["at"], "actor_label": label, "actor_role": role})
+                            "at": _ist(e["at"]), "actor_label": label, "actor_role": role})
     # EXTERNAL-FACULTY rule: is this ATR for a course taught by the "External"
     # placeholder (faculty home dept 'EXT')? If so, there is no faculty narrative;
     # instead the HOD types his own action note here and endorses it up to the VD.

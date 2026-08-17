@@ -120,6 +120,13 @@ def create_app() -> Flask:
     def index():
         return redirect(url_for("admin.dashboard"))
 
+    # User manual — a single self-contained page (app/static/manual.html). Served
+    # at a clean "/manual" URL as well as the raw "/static/manual.html". Flask's
+    # static route already serves the file; this just gives it a memorable address.
+    @app.route("/manual")
+    def manual():
+        return app.send_static_file("manual.html")
+
     return app
 
 

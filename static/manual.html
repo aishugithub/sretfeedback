@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<!-- ==========================================================================
+     How to Use the Website — plain-English user guide for the SRET Feedback System
+     A single self-contained page (no external files) so it can be opened from any
+     device on the college LAN, printed, or kept next to the app. Written for three
+     kinds of user: the ADMIN (the person running the app), FACULTY (teaching staff
+     who receive their results and file ATRs), and LEADERS (HOD / Vice Dean / Dean).
+     ========================================================================== -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Use the SRET Feedback System</title>
+<style>
+  :root { --navy:#0b3d68; --navy2:#08324f; --blue:#0b5ec0; --ink:#1c1e21; --bg:#f5f6f8; }
+  * { box-sizing:border-box; }
+  body { font-family:system-ui,Arial,sans-serif; margin:0; background:var(--bg); color:var(--ink); line-height:1.55; }
+  header { background:var(--navy); color:#fff; padding:26px 22px; }
+  header h1 { margin:0; font-size:24px; }
+  header p { margin:6px 0 0; opacity:.9; font-size:14px; }
+  .layout { max-width:1080px; margin:0 auto; padding:0 18px; }
+  /* Sticky in-page navigation. */
+  nav.toc { position:sticky; top:0; z-index:5; background:var(--navy2); display:flex; flex-wrap:wrap; gap:2px; padding:0 8px; }
+  nav.toc a { color:#cfe1f2; text-decoration:none; font-size:13px; padding:11px 12px; }
+  nav.toc a:hover { background:var(--navy); color:#fff; }
+  section { background:#fff; margin:22px 0; padding:24px 28px; border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  h2 { color:var(--navy); margin-top:0; border-bottom:2px solid #e6e8eb; padding-bottom:8px; }
+  h3 { color:var(--navy2); margin:22px 0 6px; }
+  a { color:var(--blue); }
+  /* A coloured tag saying WHO does this step. */
+  .who { display:inline-block; font-size:11px; font-weight:700; letter-spacing:.03em; padding:2px 9px; border-radius:10px; vertical-align:middle; }
+  .who.admin   { background:#e3ecf7; color:#0b3d68; }
+  .who.faculty { background:#fbe6c8; color:#8a5a00; }
+  .who.leader  { background:#e3f4e6; color:#1b6b2b; }
+  .who.student { background:#eee; color:#555; }
+  /* Numbered step list. */
+  ol.steps { counter-reset:step; list-style:none; padding-left:0; }
+  ol.steps > li { counter-increment:step; position:relative; padding:12px 0 12px 46px; border-bottom:1px solid #eef1f4; }
+  ol.steps > li:last-child { border-bottom:none; }
+  ol.steps > li::before { content:counter(step); position:absolute; left:0; top:12px; width:30px; height:30px;
+      background:var(--blue); color:#fff; border-radius:50%; text-align:center; line-height:30px; font-weight:700; font-size:14px; }
+  .click { background:#eef4fb; border-left:3px solid var(--blue); padding:2px 8px; border-radius:4px; font-weight:600; white-space:nowrap; }
+  .tip { background:#f0f7f1; border-left:4px solid #1b9e4b; padding:10px 14px; border-radius:6px; margin:12px 0; font-size:14px; }
+  .warn { background:#fdf2e5; border-left:4px solid #d08a1a; padding:10px 14px; border-radius:6px; margin:12px 0; font-size:14px; }
+  .priv { background:#eef4fb; border-left:4px solid var(--navy); padding:10px 14px; border-radius:6px; margin:12px 0; font-size:14px; }
+  /* The big-picture flow strip. */
+  .flow { display:flex; flex-wrap:wrap; align-items:stretch; gap:8px; margin:6px 0 4px; }
+  .flow .box { flex:1 1 150px; background:#f7f9fc; border:1px solid #dbe4ee; border-radius:8px; padding:12px; font-size:13px; }
+  .flow .box b { display:block; color:var(--navy); margin-bottom:3px; }
+  .flow .arrow { align-self:center; color:#9aa7b4; font-size:20px; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; }
+  th,td { border:1px solid #e0e4e8; padding:8px 10px; text-align:left; font-size:14px; vertical-align:top; }
+  th { background:#eef1f4; }
+  code { background:#eef1f4; padding:1px 6px; border-radius:4px; font-size:13px; }
+  pre { background:#0f2233; color:#e7eef5; padding:14px 16px; border-radius:8px; overflow:auto;
+        font-size:13px; line-height:1.5; margin:10px 0; }
+  pre code { background:none; color:inherit; padding:0; font-size:13px; }
+  .step-note { font-size:13px; color:#555; margin:4px 0 0; }
+  ol.steps > li > b:first-child { color:var(--navy2); }
+  kbd { background:#eef1f4; border:1px solid #cfd6dd; border-bottom-width:2px; border-radius:4px;
+        padding:1px 6px; font-size:12px; font-family:inherit; }
+  footer { text-align:center; color:#888; font-size:13px; padding:24px; }
+  @media print { nav.toc { display:none; } section { box-shadow:none; page-break-inside:avoid; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="layout">
+    <h1>How to Use the Feedback System</h1>
+    <p>A plain-English walkthrough — for the Admin, for Faculty, and for Leaders (HOD / Vice Dean / Dean).</p>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="layout" style="display:flex;flex-wrap:wrap;gap:2px;padding:0;">
+    <a href="#start">Start here</a>
+    <a href="#bigpicture">The big picture</a>
+    <a href="#admin">Admin guide</a>
+    <a href="#uploads">Filling upload files</a>
+    <a href="#users">Users &amp; roles</a>
+    <a href="#faculty">Faculty guide</a>
+    <a href="#leaders">Leaders guide</a>
+    <a href="#v2new">What's new (v2.1)</a>
+    <a href="#github">Code &amp; GitHub</a>
+    <a href="#hosting">Hosting (PythonAnywhere)</a>
+    <a href="#updating">Updating the server</a>
+    <a href="#privacy">Privacy</a>
+  </div>
+</nav>
+
+<div class="layout">
+
+<!-- ===================== START HERE ===================== -->
+<section id="start">
+  <h2>Start here — what this is and how to open it</h2>
+  <p>This system collects student feedback for every course, turns it into a report for each
+  teacher, and — when a course scores poorly — asks that teacher to file a short
+  <em>Action Taken Report</em> (ATR) which their HOD reviews. Three kinds of people use it:</p>
+
+  <table>
+    <tr><th>Who</th><th>What they do</th><th>How they reach it</th></tr>
+    <tr>
+      <td><span class="who admin">ADMIN</span></td>
+      <td>Runs the whole thing: uploads data, opens the feedback window, sends links, downloads reports.</td>
+      <td>On the laptop running the app, open <code>http://localhost:5000/</code></td>
+    </tr>
+    <tr>
+      <td><span class="who faculty">FACULTY</span></td>
+      <td>Teaching staff. Receive their result; if asked, file an ATR. <b>No login</b> — they use a private link emailed to them.</td>
+      <td>Click the link in their email (works from any phone/PC on the college network)</td>
+    </tr>
+    <tr>
+      <td><span class="who leader">LEADER</span></td>
+      <td>HOD, Vice Dean, or Dean. Review the ATRs from their department and endorse or return them.</td>
+      <td>Open <code>http://&lt;laptop-address&gt;:5000/leader/login</code> and sign in</td>
+    </tr>
+  </table>
+
+  <div class="tip"><b>The starting point is always the Admin.</b> The app runs on one laptop
+  on the college LAN. When the Admin starts it, everyone else connects to that laptop's address
+  (for example <code>http://192.168.1.7:5000</code>). Nothing works until the Admin has it running.</div>
+</section>
+
+<!-- ===================== BIG PICTURE ===================== -->
+<section id="bigpicture">
+  <h2>The big picture — one full cycle, start to finish</h2>
+  <p>Read left to right. Each box says <b>who</b> acts.</p>
+  <div class="flow">
+    <div class="box"><b>1 · Admin</b> Load the data (students, courses, who teaches what).</div>
+    <div class="arrow">→</div>
+    <div class="box"><b>2 · Admin</b> Open the feedback window and email each student a private link.</div>
+    <div class="arrow">→</div>
+    <div class="box"><b>3 · Students</b> Tap their link and rate their courses (anonymously).</div>
+  </div>
+  <div class="flow">
+    <div class="box"><b>4 · Admin</b> Close the window, set the pass mark, and send each teacher their results.</div>
+    <div class="arrow">→</div>
+    <div class="box"><b>5 · Faculty</b> Below-mark teachers get a link (in that email) to file an ATR.</div>
+    <div class="arrow">→</div>
+    <div class="box"><b>6 · Leaders</b> HOD reviews each ATR and endorses or returns it.</div>
+  </div>
+  <div class="tip">Steps 1, 2 and 4 are the Admin's. Step 3 is the students'. Step 5 is the
+  teaching faculty's, and step 6 is the leaders'. The rest of this guide walks each person
+  through exactly what they click.</div>
+</section>
+
+<!-- ===================== ADMIN ===================== -->
+<section id="admin">
+  <h2><span class="who admin">ADMIN</span> &nbsp;The Admin walkthrough</h2>
+  <p>You run the app on the laptop and open <code>http://localhost:5000/</code>. You land on the
+  <b>Dashboard</b>. Across the top is a menu — you'll work through it roughly left to right:
+  <em>Dashboard · Roster · Allocation · Enrollment · Offerings · Readiness · Categories ·
+  Templates · Cycles · Reports · Activity</em>. Here is the whole flow.</p>
+
+  <ol class="steps">
+    <li><b>Create the cycle first.</b> Everything else lives <em>inside</em> a cycle, so this is the
+    very first thing you do. Click <span class="click">Cycles</span>, then <span class="click">Create</span>,
+    and give it a code (like CA1) and a name. From now on you'll select this cycle on the pages below,
+    and the roster and course allocation you load will go into it.</li>
+
+    <li><b>Check the roster.</b> Click <span class="click">Roster</span>, make sure your new cycle is
+    selected, and see the students loaded for it. You can upload the student list here
+    (<span class="click">Upload</span>) or edit a student. This is <em>who</em> will be asked for
+    feedback. <em>(For the exact columns of this and the other upload files, see
+    <a href="#uploads">Filling the upload files</a>.)</em></li>
+
+    <li><b>Load the course allocation.</b> Click <span class="click">Allocation</span>, choose the
+    cycle, pick your allocation spreadsheet and upload it. Your sheet includes a
+    <b>feedback category</b> column for every row (Theory, Lab, Skill, Ability Enhancement, or any
+    category you've configured) — this is what decides which questionnaire each course uses. The
+    system reads the file and shows a preview of the teaching assignments (which teacher takes which
+    course). If any row has a missing or unrecognised category it is flagged here and <u>not</u>
+    committed — fix it in the sheet and re-upload. When the preview is clean, click
+    <span class="click">Confirm</span> to commit.</li>
+
+    <li><b>Add elective enrollments (if any).</b> Click <span class="click">Enrollment</span>, pick
+    the elective course group and upload the list of students taking it. This tells the system which
+    students should be asked about each elective. Skip this if you have no electives.</li>
+
+    <li><b>Review the offerings.</b> Click <span class="click">Offerings</span> to see every
+    course+teacher for the cycle. Each already carries the <b>category</b> you declared in the
+    allocation sheet (it is required at upload, so nothing is ever left blank). If you need to change
+    one, click <span class="click">Edit</span> on that offering and pick a different category. The
+    list of available categories is managed separately under <span class="click">Categories</span>,
+    where you can add new ones (for example INTERNSHIP) without any code change.</li>
+
+    <li><b>Run the Readiness Check.</b> Click <span class="click">Readiness</span>. This is the
+    safety gate: it looks for problems (missing categories, students with no courses, etc.) and shows
+    <b>READY</b> or a list of things to fix. A real cycle <u>cannot be opened</u> until this says READY.
+    (You may dismiss a specific warning with a reason if it's expected.)</li>
+
+    <li><b>Set the invitation email.</b> Back on <span class="click">Cycles</span>, click
+    <span class="click">Email</span> next to your cycle to edit the message students will receive.
+    The placeholders <code>{student_name}</code>, <code>{cycle_name}</code> and <code>{link}</code>
+    are filled in automatically for each student, so each person gets their own private link.</li>
+
+    <li><b>Open the cycle.</b> Still on <span class="click">Cycles</span>, click
+    <span class="click">Open</span>. The state changes to <b>OPEN</b> and the system is now ready to
+    accept submissions. (If Readiness isn't READY, it will refuse and send you back to fix it.)</li>
+
+    <li><b>Generate and send the links.</b> Click <span class="click">Tokens</span> for the cycle.
+    Choose a batch — by programme, department and/or year — and click
+    <span class="click">Generate</span>. The system makes <b>one private link per student</b>. Tick
+    <span class="click">Send email</span> to email each student their own link.
+    <div class="warn"><b>Email modes:</b> if no email is set up, every message is instead saved as a
+    file in the app's <code>outbox</code> folder (nothing actually sends) — perfect for a dry run.
+    To really send, set up email first (see <code>EMAIL-GMAIL-API-SETUP.md</code>). A <b>test</b>
+    cycle always redirects mail to one safe test address, so it can never message real students.</div></li>
+
+    <li><b>Watch participation and nudge stragglers.</b> Click <span class="click">Participation</span>
+    for the cycle to see, live, who has submitted and who is still pending. Click
+    <span class="click">Send reminder</span> to re-send links to those who haven't finished. You see
+    <em>who participated</em> — never <em>what anyone answered</em>.</li>
+
+    <li><b>Close the cycle.</b> When collection is done, go back to <span class="click">Cycles</span>
+    and click <span class="click">Close</span>. Submissions stop.</li>
+
+    <li><b>Send results to teachers — and start the ATR workflow.</b> This is the main post-close
+    step. On <span class="click">Cycles</span>, click <span class="click">Results &amp; send</span> for
+    the cycle. That page walks you through four things, top to bottom:
+
+      <ol type="a" style="margin:8px 0">
+        <li><b>Set the POOR level.</b> Type the pass mark out of 10 (for example <b>8</b> or
+        <b>8.5</b>). Optionally add an "any section below X" cut, and the minimum number of responses a
+        course needs before it's judged. Click <span class="click">Save &amp; re-classify</span>.</li>
+        <li><b>Run scoring &amp; classification.</b> One click scores every course and marks each
+        <b>GOOD</b> or <b>POOR</b> against your level. Safe to re-run any time.</li>
+        <li><b>Review the list.</b> Every teacher's courses appear with the response count, overall
+        score and band — below-mark courses highlighted in red — plus a count of how many teachers will
+        be asked for an ATR.</li>
+        <li><b>Edit the email and send.</b> Adjust the short preamble, then click
+        <span class="click">Generate &amp; Send</span>. <b>Every teacher gets one email</b> with a
+        <b>single combined PDF</b> of all their courses; any course below the mark carries a
+        "File your ATR" link <em>in that same email</em>. (Tick the box to also send HOD/Dean roll-up
+        summaries.) To test first, type your own address in <b>“Send everything to this address
+        instead”</b> — every email, for every teacher, comes to you.</li>
+      </ol>
+
+      <div class="tip">Just like the student links, browse the app at your <b>laptop's LAN address</b>
+      (not localhost) before sending, so the ATR links work for teachers. In <b>dev mode</b> nothing is
+      sent — each email, with its PDF attachments, is written to <code>app/outbox/</code> so you can
+      open and check it first.</div>
+      This is the bridge to the Faculty step below: sending is what puts the "File your ATR" link in a
+      below-mark teacher's inbox and makes the ATR show up on their HOD's dashboard.</li>
+
+    <li><b>(Optional) Download reports by hand.</b> The send above already attaches each teacher's
+    reports. If you also want copies for records, click <span class="click">Reports</span>, pick the
+    cycle, and download any single course as <span class="click">Excel</span> or
+    <span class="click">PDF</span>, or a whole programme/year at once (a zip of Excel files or one
+    combined PDF).</li>
+
+    <li><b>Keep an eye on the log.</b> Click <span class="click">Activity</span> any time to see
+    everything that has happened on the system — who did what, when, and from which device — with a
+    quick summary at the top. Student submissions are never shown here (that protects anonymity).</li>
+  </ol>
+
+  <div class="warn"><b>Backup is simple:</b> copy the <code>app/data</code> folder any time. The
+  student roster lives in the permanent <code>master.db</code>; each cycle's answers live in their own
+  file, so a cycle can be archived and reset without ever touching the master list.</div>
+</section>
+
+<!-- ===================== FILLING UPLOAD FILES ===================== -->
+<section id="uploads">
+  <h2><span class="who admin">ADMIN</span> &nbsp;Filling the upload files</h2>
+  <p>Three spreadsheets feed the system: the <b>student roster</b>, the <b>course allocation</b>,
+  and (only for electives) the <b>enrollment</b> list. On each upload page there is a
+  <span class="click">Download template</span> button — always start from that, so the column
+  headings are already correct. Every upload runs as a <b>dry run first</b>: you see a preview,
+  any bad row is flagged and <u>not</u> committed, and nothing is saved until you click
+  <span class="click">Confirm</span>.</p>
+
+  <div class="tip"><b>Order matters:</b> create the cycle, then upload the <b>roster first</b>,
+  then the <b>allocation</b>. The allocation checks each course's class against the roster, so the
+  roster has to be in place before it.</div>
+
+  <h3>1 · Student roster</h3>
+  <p>You do <b>not</b> list students one by one. Each row describes <b>one group</b>
+  (a programme + year + section) as a <b>range of register numbers</b>, and the system expands that
+  range into individual students automatically. Names aren't needed — each student's email is built
+  as <code>&lt;register-no&gt;@sriher.edu.in</code>.</p>
+  <table>
+    <tr><th>Column</th><th>Required?</th><th>What to put</th></tr>
+    <tr><td><code>programme_code</code></td><td>Yes</td><td>The E-code, e.g. E02</td></tr>
+    <tr><td><code>year_of_study</code></td><td>Yes</td><td>1 to 4</td></tr>
+    <tr><td><code>section</code></td><td>Yes</td><td>A, B … or <code>NA</code> if the class isn't divided</td></tr>
+    <tr><td><code>reg_no_start</code></td><td>Yes</td><td>First register number in the range</td></tr>
+    <tr><td><code>reg_no_end</code></td><td>Yes</td><td>Last register number in the range</td></tr>
+    <tr><td><code>expected_count</code></td><td>Optional</td><td>How many students you expect in this range — used only as a cross-check (see below)</td></tr>
+  </table>
+  <p class="muted">Optional: add a second sheet whose name starts with <em>exclusion</em>, holding a
+  single column of register numbers to leave out (for example, detained students).</p>
+
+  <h3>2 · Course allocation</h3>
+  <p><b>One row per teaching assignment</b>, kept flat — no merged cells. A course taught by three
+  faculty is three rows; an elective basket with five options is five rows, each with its own
+  teacher.</p>
+  <table>
+    <tr><th>Column</th><th>Required?</th><th>What to put</th></tr>
+    <tr><td><code>academic_year</code></td><td>Yes</td><td>e.g. 2026-27</td></tr>
+    <tr><td><code>semester</code></td><td>Yes</td><td>ODD or EVEN</td></tr>
+    <tr><td><code>programme_code</code></td><td>Yes</td><td>The E-code, e.g. E02</td></tr>
+    <tr><td><code>year_of_study</code></td><td>Yes</td><td>1 to 4</td></tr>
+    <tr><td><code>section</code></td><td>Yes</td><td>A, B … or <code>NA</code></td></tr>
+    <tr><td><code>course_code</code></td><td>Yes</td><td>e.g. CSE23CT201</td></tr>
+    <tr><td><code>course_title</code></td><td>Yes</td><td>The course name</td></tr>
+    <tr><td><code>course_type</code></td><td>Yes</td><td>CORE / ELECTIVE / LAB / PROJECT — this decides how class size is counted, <em>not</em> the feedback form</td></tr>
+    <tr><td><code>feedback_category</code></td><td><b>Required</b></td><td>THEORY / LAB / SKILL / AE (or any category you added under <span class="click">Categories</span>). <b>This picks the questionnaire.</b> There is no auto-detection — every row must state it, or the row is rejected.</td></tr>
+    <tr><td><code>elective_basket</code></td><td>Only if ELECTIVE</td><td>e.g. Elective-I (leave blank for non-electives)</td></tr>
+    <tr><td><code>faculty_name</code></td><td>Yes</td><td>The teacher's name</td></tr>
+    <tr><td><code>faculty_email</code></td><td>Yes</td><td>Institutional email — this is where their report/ATR link is sent</td></tr>
+    <tr><td><code>faculty_id</code></td><td>Yes</td><td>A stable key for the teacher across cycles, e.g. SRET1234</td></tr>
+    <tr><td><code>role</code></td><td>Yes</td><td>e.g. Primary</td></tr>
+    <tr><td><code>expected_students</code></td><td>Optional</td><td>Class strength — <b>leave blank for electives</b> (their count comes from enrollment). Used as a roster cross-check (see below)</td></tr>
+  </table>
+  <div class="warn">Every <code>programme_code + year_of_study + section</code> on a CORE/LAB/PROJECT
+  row must already exist in the uploaded roster, or that row is rejected in the preview. Electives
+  are matched by the enrollment upload instead, not the roster.</div>
+
+  <h3>3 · Enrollment (electives only)</h3>
+  <p>Only needed for elective courses. <b>One register number per row.</b> The header
+  <code>register_no</code> is optional. Every student listed must already be in this cycle's roster,
+  and can't appear in another faculty's group for the same course.</p>
+
+  <div class="priv"><b>About the “expected” counts (the double-check you asked about).</b>
+  <code>expected_count</code> (roster) and <code>expected_students</code> (allocation) are both
+  <b>optional</b>. Their only job is a sanity check: when you run the <span class="click">Readiness</span>
+  check, the system counts how many students actually map to each course from the roster and compares
+  it to the number you typed. If they differ by more than a small tolerance (more than 3, or more than
+  20%), it shows a <b>soft warning</b> like “found 38 vs expected 45.” It does <b>not</b> block you —
+  it just flags a likely data slip (a missing roster row, a wrong section letter, a wrong year). Fill
+  it in for your core / theory / lab courses where you know the strength; leave it blank for electives.
+  If you leave it blank everywhere, nothing breaks — you simply lose that one automatic check.</div>
+</section>
+
+<!-- ===================== USERS & ROLES ===================== -->
+<section id="users">
+  <h2><span class="who admin">ADMIN</span> &nbsp;Managing leader logins (Users &amp; Roles)</h2>
+  <p>Before any HOD, Vice Dean or Dean can review ATRs, they need a login. The system already
+  created a placeholder account for every leader — one HOD per department, a Vice Dean and a Dean.
+  Your job is simply to put the <b>real</b> names and emails on them and send each person a link to
+  set their own password. It all happens on one page: <span class="click">Users &amp; Roles</span>
+  in the top menu.</p>
+
+  <div class="priv">You never see or type anyone's password. You only send a one-time link; each
+  leader chooses their own password privately.</div>
+
+  <h3>Set up your leaders</h3>
+  <ol class="steps">
+    <li><b>Open the page.</b> Click <span class="click">Users &amp; Roles</span> in the top menu. You'll
+    see every leader with their role, the department(s) they can see, whether they've set a password,
+    and their last login.</li>
+
+    <li><b>Personalise each leader.</b> Click <span class="click">Edit</span> on a row and replace the
+    placeholder with the real person's <b>name</b> and <b>institutional email</b> (the email is their
+    login username). Confirm the role and the department scope (see the table below), then click
+    <span class="click">Save changes</span>.</li>
+
+    <li><b>Add anyone missing.</b> If you need another leader, click <span class="click">+ Add
+    leader</span>, fill in the same details, and save.</li>
+
+    <li><b>Send the set-password invites.</b> Use <span class="click">Send invite</span> on one
+    person's row, or <span class="click">Send invites to all without a password</span> at the top to do
+    everyone at once. Each leader gets an email with a one-time link (valid 7 days).</li>
+
+    <li><b>Watch the progress.</b> The <b>Password</b> column flips from <em>Not set</em> to
+    <em>Set</em> once a leader has chosen theirs, and <b>Last login</b> shows when they were last in.</li>
+
+    <li><b>Resend or reset.</b> If a link expires, or a leader forgets their password, click
+    <span class="click">Resend / reset</span> on their row to email a fresh link.</li>
+
+    <li><b>Remove access when needed.</b> Click <span class="click">Disable</span> to stop someone
+    logging in (for example, when a leader changes role) without deleting their history; you can
+    <span class="click">Enable</span> them again anytime.</li>
+  </ol>
+
+  <h3>Who can see what — the scope rule</h3>
+  <table>
+    <tr><th>Role</th><th>Choose this scope</th><th>What they see</th></tr>
+    <tr><td><b>HOD</b></td><td>Exactly <b>one</b> department</td><td>Only that department's ATRs — an
+      E01 HOD can never see E02.</td></tr>
+    <tr><td><b>Vice Dean</b></td><td><b>ALL</b>, or a chosen set of departments</td><td>The whole
+      college, or just the departments you tick.</td></tr>
+    <tr><td><b>Dean</b></td><td>Always the whole college</td><td>Every department (the scope choice is
+      ignored for a Dean).</td></tr>
+  </table>
+
+  <div class="warn"><b>Email must be working for invites to actually send.</b> The invites use the same
+  emailer as the rest of the app. If Gmail sending is configured, they go out for real; if no email is
+  set up, each invite is instead written to <code>app/outbox/</code> as a <code>.eml</code> file (safe
+  test mode) and the page tells you so. See <b>EMAIL-GMAIL-API-SETUP.md</b> to switch on real sending,
+  and remember to restart / reload the app after changing the email settings.</div>
+
+  <div class="tip">If leaders will open their link from <b>off campus</b>, set
+  <code>FEEDBACK_PUBLIC_BASE_URL</code> to your public address (e.g. your PythonAnywhere URL) so the
+  emailed link is reachable. On the college LAN it just uses the address you're already using.</div>
+</section>
+
+<!-- ===================== FACULTY ===================== -->
+<section id="faculty">
+  <h2><span class="who faculty">FACULTY</span> &nbsp;The Faculty walkthrough</h2>
+  <p>If you teach a course, here is your whole experience. <b>You never log in and you set no
+  password.</b> Everything reaches you by email, and every button is a private, one-time link.</p>
+
+  <ol class="steps">
+    <li><b>You get an email.</b> After a feedback cycle closes, the Admin sends results. If one of
+    your courses was rated <b>POOR</b>, your email includes a <span class="click">File ATR</span>
+    button (ATR = Action Taken Report — a short note on what you'll do to improve).</li>
+
+    <li><b>Click the link.</b> It opens a simple page showing <b>your course</b> and a text box. No
+    login is asked — the link itself proves it's you, which is why you should not forward it.</li>
+
+    <li><b>Write what you plan to do.</b> In the box, describe the action you're taking (for example:
+    "I will add weekly problem-solving sessions and share solved examples."). Then click
+    <span class="click">Submit</span>.</li>
+
+    <li><b>It goes to your HOD.</b> You'll see a "submitted" confirmation. Your ATR is now with your
+    Head of Department for review. You're done — unless it comes back.</li>
+
+    <li><b>If your HOD returns it.</b> You'll get a new email with a reason and a fresh
+    <span class="click">Revise</span> link. Open it, update your note, and submit again. Repeat until
+    it's endorsed.</li>
+  </ol>
+
+  <div class="tip">If a link ever says it's invalid or expired, it has already been used or timed out.
+  Ask the Admin to re-send you a fresh one.</div>
+</section>
+
+<!-- ===================== LEADERS ===================== -->
+<section id="leaders">
+  <h2><span class="who leader">LEADER</span> &nbsp;The Leaders walkthrough (HOD / Vice Dean / Dean)</h2>
+  <p>Leaders review the ATRs from their own area and decide whether each is acceptable. You
+  <b>do</b> log in (with a password you set yourself), and you only ever see your own department's
+  ATRs — a HOD of one department can never see another's.</p>
+
+  <h3>First time only — set your password</h3>
+  <ol class="steps">
+    <li><b>Open the set-password email.</b> The Admin sends you a one-time
+    <span class="click">Set your password</span> link. (The Admin never knows or holds your password.)</li>
+    <li><b>Choose a password.</b> The link opens a page with your email shown. Enter a password (at
+    least 8 characters), type it again to confirm, and click <span class="click">Save</span>. The link
+    then stops working — it was one-time.</li>
+  </ol>
+
+  <h3>Every time — review ATRs</h3>
+  <ol class="steps">
+    <li><b>Log in.</b> Open <code>http://&lt;laptop-address&gt;:5000/leader/login</code>, enter your
+    email and password, and click <span class="click">Log in</span>.</li>
+
+    <li><b>Open your dashboard.</b> You land on the <b>ATR dashboard</b>. Pick the cycle from the
+    dropdown. You see a list of the courses <em>in your area</em> and each ATR's status. Items waiting
+    on <b>you</b> are marked as yours to act on.</li>
+
+    <li><b>Review one ATR.</b> Click <span class="click">Review</span> on a row. You'll see the
+    teacher's course and the action they wrote. Read it.</li>
+
+    <li><b>Endorse or Return.</b>
+      <ul>
+        <li>Click <span class="click">Endorse</span> if the action is acceptable — the ATR is
+        approved and moves on.</li>
+        <li>Click <span class="click">Return</span> if it needs more — you <b>must</b> type a reason.
+        The teacher automatically gets a fresh link to revise and resubmit.</li>
+      </ul>
+    </li>
+
+    <li><b>Chase missing ATRs.</b> For a POOR course where the teacher hasn't filed yet, click
+    <span class="click">Send reminder</span> to email them their link again.</li>
+
+    <li><b>Log out.</b> Click <span class="click">Log out</span> when you're finished, especially on a
+    shared computer.</li>
+  </ol>
+
+  <div class="tip"><b>Vice Deans and the Dean</b> work exactly the same way, but see a wider area — a
+  Vice Dean sees their group of departments, and the Dean sees the whole college.</div>
+</section>
+
+<!-- ===================== WHAT'S NEW (v2.1) ===================== -->
+<section id="v2new">
+  <h2><span class="who admin">ADMIN</span> &nbsp;What's new in v2.1 — everything you need to run it</h2>
+  <p>Version 2.1 adds a safe three-stage testing process, an admin login, a live status
+  board, a one-click endorsement for the Dean/Vice-Dean, a signed audit record, and a
+  clean way to turn a finished test run into the real thing. This section is the complete
+  reference for all of it.</p>
+
+  <h3>1 · The three testing levels (send safely, then go live)</h3>
+  <p>Every cycle now runs at a <b>testing level</b>. You start safe and step it up as each level
+  passes. The level controls <i>who really gets email</i> and whether reports are watermarked.
+  Two test inboxes are configured in <code>app/.env</code>: the <b>student</b> test inbox
+  (<code>FEEDBACK_TEST_EMAIL</code>, currently <code>aishwarya.bramma@gmail.com</code>) and the
+  <b>staff</b> test inbox (<code>FEEDBACK_FACULTY_ALIAS_EMAIL</code>, currently
+  <code>aishwarya@sret.edu.in</code>). Change either in <code>.env</code>.</p>
+  <table>
+    <tr><th>Level</th><th>Students</th><th>Faculty &amp; Leaders</th><th>Reports</th></tr>
+    <tr><td><b>Level 1</b> (safest)</td><td>→ student test inbox</td><td>→ staff test inbox</td><td>watermarked</td></tr>
+    <tr><td><b>Level 2</b></td><td>→ student test inbox</td><td><b>real</b> emails</td><td>watermarked</td></tr>
+    <tr><td><b>Level 3</b></td><td><b>real</b> students</td><td><b>real</b></td><td>watermarked</td></tr>
+    <tr><td><b>Production</b></td><td><b>real</b></td><td><b>real</b></td><td>clean (official)</td></tr>
+  </table>
+  <p>A new cycle is born at <b>Level 1</b>. On the <span class="click">Cycles</span> page each cycle
+  shows a <b>TEST L1/L2/L3</b> or <b>PROD</b> badge and a <b>Set level</b> dropdown to move it
+  L1→L2→L3. You never set Production here — that happens only through <b>Purge &amp; promote</b> (below).</p>
+  <div class="tip">The redirect is enforced <b>in the mail code</b>, not by addresses in a spreadsheet —
+  so at Levels 1–2 a real student can never be emailed even if a cell was left un-edited.</div>
+
+  <h3>2 · Purge &amp; promote to production</h3>
+  <p>When your Level-3 test passes, you do <b>not</b> create a new cycle. Instead, on the
+  <span class="click">Cycles</span> page click <span class="click">Purge → Production</span> and type the
+  exact phrase <code>PURGE &lt;CODE&gt;</code> (e.g. <code>PURGE CA1</code>) to confirm. This:</p>
+  <table>
+    <tr><th>Wiped (gone)</th><th>Kept (untouched)</th></tr>
+    <tr><td>All test feedback: student responses, tokens, ATRs and their trail, and the GOOD/POOR
+        bands + marks derived from them.</td>
+        <td>The Faculty Master, all course offerings, the student roster/enrollment, the templates,
+        and this cycle's own settings (email text, thresholds).</td></tr>
+  </table>
+  <p>The cycle flips to <b>Production (Level 0)</b> and back to <b>DRAFT</b>, ready for you to open and
+  invite the real students. A timestamped backup of the purged data is saved in the
+  <code>app/archive/</code> folder first, so even this step is recoverable.</p>
+
+  <h3>3 · Admin login (two accounts)</h3>
+  <p>The admin console is now behind a login. There are two admin accounts —
+  <code>aishwarya@sret.edu.in</code> and <code>lekha@sret.edu.in</code> — so actions are attributable
+  to a named person (you'll see the logged-in email top-right, and it's recorded in the Activity log).</p>
+  <ul>
+    <li><b>First password:</b> go to <code>/admin/login</code> → <b>Request a reset link</b>
+      (<code>/admin/forgot</code>), enter your email, and click the link that arrives.</li>
+    <li><b>Aishwarya is also the Vice-Dean:</b> that login was kept as your Vice-Dean account and simply
+      <i>also</i> granted admin access — you log in with your existing Vice-Dean password and you keep
+      endorsing ATRs. (If you later hand the Vice-Dean role to someone else, admin access stays with you.)</li>
+    <li><b>Log out</b> from the link at the far right of the admin menu.</li>
+  </ul>
+  <div class="warn"><b>Forgot your login? Three ways back in, safest first:</b>
+    <ol>
+      <li><b>Self-service:</b> <code>/admin/forgot</code> emails you a reset link.</li>
+      <li><b>No email available:</b> on the server, run
+        <code>python admin_reset.py link aishwarya@sret.edu.in</code> — it prints a set-password link to paste in a browser.</li>
+      <li><b>Both locked out:</b> on the server, run
+        <code>python admin_reset.py setpw lekha@sret.edu.in &lt;newpassword&gt;</code> to set a password directly.
+        (It only ever touches admin accounts, and needs server access, so it's a safe last resort.)</li>
+    </ol>
+  </div>
+
+  <h3>4 · Default banding: POOR below 7.5, minimum responses 0</h3>
+  <p>By default a course is flagged <b>POOR</b> (an ATR is required) when its overall score is
+  <b>below 7.5</b> out of 10, and <b>every</b> scored course is banded (minimum responses = 0). You can
+  still override both per cycle on the <span class="click">Results &amp; send</span> page before you classify.</p>
+
+  <h3>5 · Archiving hides a finished cycle</h3>
+  <p>When you <b>Archive</b> a cycle it disappears from every dropdown (dashboard, offerings, students,
+  reports, uploads, the leaders' and HODs' views) — the whole point of archiving. It remains visible in
+  one place only: the <span class="click">Cycles</span> page, plus the Activity audit log.</p>
+
+  <h3>6 · The Status board</h3>
+  <p>The new <span class="click">Status</span> menu shows, for one cycle: student participation
+  (invited / completed / pending) and an <b>ATR tracking table</b> — which teachers were flagged POOR,
+  who has and hasn't <b>submitted</b> their ATR, and which <b>HOD / Vice-Dean / Dean</b> hasn't acted yet.
+  Filter by department, by exact ATR state, by "waiting on" (Faculty not submitted / HOD not acted /
+  Vice-Dean / Dean / Closed), and by a free-text search over faculty and course.</p>
+
+  <h3>7 · Endorse all (Dean &amp; Vice-Dean) and "RECORDED"</h3>
+  <p>On the leader ATR dashboard the Dean and the Vice-Dean get an <b>Endorse all (N)</b> button that
+  endorses every ATR currently waiting on them in one click (the Vice-Dean's is limited to her
+  departments). Each endorsement is still recorded individually in the audit trail. When the Dean
+  endorses the <b>last</b> ATR, the whole cycle turns <b>COMPLETE &amp; RECORDED</b> — your signal that it is
+  ready for the audit report and archive.</p>
+
+  <h3>8 · The signed audit report (for auditing)</h3>
+  <p>Once a cycle is RECORDED, open the <span class="click">Cycles</span> page and click
+  <span class="click">Audit report</span>. The system builds ONE consolidated PDF — students on roster vs
+  who participated, every course's faculty with feedback count and mark out of 10, which teachers were
+  given an ATR and their written explanation, and the full endorsement trail — then <b>digitally seals
+  it</b> so any later change is detectable. A copy is also saved in <code>app/archive/</code>. Store the
+  signed PDF in the Dean's or Vice-Dean's Drive as the audit reference.</p>
+  <div class="tip"><b>Verifying the signature.</b> Open the PDF in Adobe Reader. It shows the document is
+  <b>signed and unchanged</b>, signed by "SRET Automated Feedback System". Because the certificate is the
+  college's own (self-managed, not bought from a public authority), Adobe adds "signer's identity is
+  unknown" until someone does a one-time <i>Add to Trusted Certificates</i> for it — the <i>was-it-tampered</i>
+  proof is valid either way. Each report also prints a SHA-256 fingerprint as a second check.</div>
+
+  <p><b>Optional — a trusted timestamp.</b> For a stronger audit record you can also embed an
+  <b>RFC-3161 trusted timestamp</b>: an independent Timestamp Authority (TSA) cryptographically attests
+  <i>when</i> the document was signed, so the date can't be disputed and the signature stays verifiable
+  for years (long-term validation). To enable it, set <code>FEEDBACK_TSA_URL</code> in
+  <code>app/.env</code> to a TSA endpoint (e.g. the free <code>https://freetsa.org/tsr</code>). When it's
+  set and reachable, the report is signed <i>and</i> timestamped; when it's blank or unreachable the report
+  still generates (signed, just without the timestamp) and says so. <b>Caveat:</b> PythonAnywhere's
+  <b>free</b> tier blocks outbound TSA calls — this needs a paid tier or the TSA host whitelisted.</p>
+
+  <div class="tip"><b>The full audit chain, end to end:</b> generate PDF → embed SHA-256 fingerprint →
+  digitally sign (institutional certificate) → add trusted timestamp (if a TSA is configured) → save a
+  copy in <code>app/archive/</code> → store the same signed PDF in the Dean's / Vice-Dean's Drive as the
+  official audit reference.</div>
+
+  <h3>8a · Recommended — sign on your laptop (no server whitelisting)</h3>
+  <p>The <b>signing</b> and <b>timestamping</b> don't have to happen on the server. It is actually better to
+  do the final sealing on your laptop, because (1) the private signing key then never sits on the
+  public server, and (2) your laptop has open internet, so the trusted-timestamp (TSA) call just works —
+  no PythonAnywhere whitelisting or paid tier needed. The server's job is only to assemble the content.</p>
+  <ol class="steps">
+    <li><b>Download the content.</b> On the <span class="click">Cycles</span> page, click
+      <span class="click">Sign on laptop</span>. This downloads
+      <code>Audit_&lt;AY&gt;_&lt;CODE&gt;_&lt;time&gt;_UNSIGNED.pdf</code>.</li>
+    <li><b>Seal it on the laptop.</b> In the <code>app/</code> folder run:
+      <pre><code>python sign_audit.py Audit_..._UNSIGNED.pdf</code></pre>
+      It signs with the college certificate (created on this machine the first time) and, if
+      <code>FEEDBACK_TSA_URL</code> is set in <code>app/.env</code>, adds a trusted timestamp. It writes
+      <code>Audit_..._signed.pdf</code> and prints the SHA-256 fingerprint.
+      <div class="step-note">Options: <code>--tsa https://freetsa.org/tsr</code> to set the TSA for this
+      run, or <code>--no-tsa</code> to sign without a timestamp.</div></li>
+    <li><b>Store it.</b> Put <code>Audit_..._signed.pdf</code> in the Dean's / Vice-Dean's Drive — that is
+      the official audit reference copy.</li>
+  </ol>
+  <div class="warn">Keep the file <code>app/data/afs_signing_key.pem</code> (created on the machine that
+  signs) private and backed up — it is the college's signing key. If you sign on the laptop, this key
+  should live only on the laptop, never on the server.</div>
+  <p class="step-note">The <span class="click">Audit report</span> button still signs on the server for
+  convenience (handy when you don't need a timestamp); on the free tier it simply won't add a timestamp.
+  For the official, timestamped copy, prefer <b>Sign on laptop</b>.</p>
+
+  <h3>9 · Upgrading the LIVE server to v2.1 — do this ONCE</h3>
+  <div class="warn"><b>One-time only.</b> Everything in this box is part of <b>setting up / upgrading the
+  web app</b> — you do it once, when you move the server to v2.1. It is <u>not</u> repeated for each
+  feedback round. Running a normal cycle afterwards never touches these steps (see
+  <b>“10 · Running a cycle”</b> just below for the repeatable routine).</div>
+  <ol class="steps">
+    <li><b>Pull the new code</b> onto the server — your usual
+      <a href="#updating">git fetch → reset → reload</a>.</li>
+    <li><b>Add the two test inboxes to the WSGI file.</b> There is <b>no <code>.env</code> on the server</b> —
+      your environment variables live in the <b>WSGI file</b>, the same place as your Gmail keys
+      (see <a href="#hosting">Hosting, Step 6</a>). Add these two lines there:
+      <pre><code>os.environ["FEEDBACK_TEST_EMAIL"]          = "aishwarya.bramma@gmail.com"
+os.environ["FEEDBACK_FACULTY_ALIAS_EMAIL"] = "aishwarya@sret.edu.in"</code></pre>
+      <div class="step-note">The up-to-date WSGI file (with these lines already in it) is in your project
+      folder as <code>WSGI File for Python anywhere Feedback System.txt</code> — copy it over if you prefer.</div></li>
+    <li><b>Install the signing library</b> in the <code>feedback</code> virtualenv:
+      <pre><code>pip install pyhanko</code></pre></li>
+    <li><b>Run the database migrations</b> (idempotent — safe to re-run), in <code>~/feedback-system</code>:
+      <pre><code>python migrate_defaults_7_5_0.py        # POOR &lt; 7.5, min responses 0
+python migrate_v2_module6_testlevels.py # the test-level column
+python migrate_admin_flag.py            # the is_admin flag
+python seed_admins.py                   # grant admin access to the two accounts</code></pre></li>
+    <li><b>Reload</b> the web app (Web tab → Reload).</li>
+    <li><b>Each admin sets their password</b> via <code>/admin/forgot</code>.</li>
+  </ol>
+  <div class="warn">Databases never travel through GitHub, so the migration scripts must run <b>on the
+  server</b> (or the updated <code>master.db</code> re-uploaded). Running them only on your laptop updates
+  only your laptop.</div>
+  <div class="tip">You do <b>not</b> set <code>FEEDBACK_TSA_URL</code> on the server — the audit report is
+  signed &amp; timestamped on your <b>laptop</b> (section 8a), where the network is open.</div>
+
+  <h3>10 · Running a cycle — the routine (EVERY round)</h3>
+  <p>Once the app is set up (section 9, done once), this is the repeatable flow for each feedback round.
+  <b>None of the one-time setup above is repeated.</b> Creating and running a new cycle is all done from the
+  web pages:</p>
+  <ol class="steps">
+    <li><b>Create the cycle</b> (Cycles → Create) — it starts safely at <b>Level 1</b>.</li>
+    <li><b>Upload</b> the roster, allocation and enrollment, and pass the <b>Readiness</b> check.</li>
+    <li><b>Test up the levels:</b> open at <b>Level 1</b> (all mail goes to your test inboxes) and check;
+      then <b>Set level</b> → 2 (real staff, test students), then → 3 (all real, watermarked), checking each time.</li>
+    <li><b>Purge → Production:</b> type <code>PURGE &lt;CODE&gt;</code>. This wipes the test feedback but keeps the
+      roster, offerings and faculty, and flips the cycle to the real Level-0 run. Open it and invite the real students.</li>
+    <li><b>Collect</b> feedback, then <b>Close</b> the cycle; on <b>Results &amp; send</b> classify
+      (POOR below 7.5) and email the teachers their results.</li>
+    <li>Teachers file <b>ATRs</b>; HOD → Vice-Dean → Dean endorse (the Dean/Vice-Dean can use
+      <b>Endorse all</b>). When the Dean closes the last one the cycle turns <b>RECORDED</b>.</li>
+    <li><b>Audit report</b> → <b>Sign on laptop</b> → store the signed PDF in the Dean's / Vice-Dean's Drive.</li>
+    <li><b>Archive</b> the cycle — it then drops out of every dropdown, keeping the pages clean for the next round.</li>
+  </ol>
+
+  <h3>11 · Starting over — wipe ALL cycles (housekeeping, rare)</h3>
+  <p>If you want a completely clean slate — for example after a round of testing, or to clear an old year
+  and begin fresh — this removes <b>every cycle and everything tied to a cycle</b> in one step, while
+  keeping the things that live across cycles.</p>
+  <table>
+    <tr><th>Removed</th><th>Kept</th></tr>
+    <tr><td>All cycles, the allocation (offerings), the student roster (and roster ranges), enrollment,
+        the GOOD/POOR bands, readiness dismissals, every per-cycle database (<code>data/cycle_*.db</code>),
+        and the archived cycle files.</td>
+        <td>The Faculty Master, all leader/admin logins, departments, programmes, the feedback
+        templates/scales/questions, the academic-year label, and the IAM tables.</td></tr>
+  </table>
+  <div class="warn"><b>This is destructive and cannot be undone.</b> It only runs when you pass
+  <code>--yes</code>. Always <code>--dry-run</code> first to see exactly what it will remove. Because
+  databases never travel through git, run it in <b>both</b> places — your laptop <u>and</u> the server.</div>
+  <div class="tip"><b>Not the same as “Purge → Production”.</b> Purge (section 2) clears ONE cycle's <i>test
+  feedback</i> but <b>keeps</b> its roster and allocation, to promote that same cycle to the real run. This
+  reset wipes <b>everything</b>, including the roster and allocation, so you re-upload from scratch.</div>
+  <ol class="steps">
+    <li><b>Preview</b> (touches nothing), in the <code>app/</code> / <code>~/feedback-system</code> folder:
+      <pre><code>python reset_all_cycles.py --dry-run</code></pre></li>
+    <li><b>Do it:</b>
+      <pre><code>python reset_all_cycles.py --yes</code></pre>
+      <div class="step-note">Optional extras on the same line: <code>--clear-activity</code> also wipes the
+      audit/activity log; <code>--unlock-templates</code> unlocks templates that locked during testing so
+      you can edit questions again. A fully clean slate is
+      <code>python reset_all_cycles.py --yes --clear-activity --unlock-templates</code>.</div></li>
+    <li><b>On the server</b>, do the same after pulling the code, then reload:
+      <pre><code>cd ~/feedback-system
+git fetch origin &amp;&amp; git reset --hard origin/main
+python reset_all_cycles.py --yes
+touch /var/www/SRETfeedback_pythonanywhere_com_wsgi.py</code></pre></li>
+  </ol>
+  <div class="step-note">If a few old <code>data/cycle_*.db</code> or <code>archive/</code> files can't be
+  auto-deleted (a rare file-permission case), just delete them by hand — they are harmless orphans that no
+  cycle refers to. After the reset, create ONE fresh cycle and upload the real roster + allocation.</div>
+</section>
+
+<!-- ===================== CODE & GITHUB ===================== -->
+<section id="github">
+  <h2><span class="who admin">ADMIN</span> &nbsp;Putting the code on GitHub — safely</h2>
+  <p>GitHub is where the <b>code</b> of the app lives online: it is your backup, and it is what
+  PythonAnywhere pulls from when you deploy (next section). The single most important rule:</p>
+
+  <div class="warn"><b>The repository holds CODE ONLY.</b> Never put secrets (your Gmail keys) or real
+  data (databases, student rosters, faculty contacts) on GitHub. A file called
+  <code>.gitignore</code> inside the <code>app/</code> folder lists everything git must skip. It is
+  already set up for you.</div>
+
+  <h3>What is deliberately kept OUT (and why)</h3>
+  <table>
+    <tr><th>Not pushed</th><th>Why</th></tr>
+    <tr><td><code>.env</code></td><td>Holds your Gmail client secret and refresh token — treat like a password.</td></tr>
+    <tr><td><code>data/</code> (all <code>.db</code> files)</td><td>The live databases — real student responses and faculty/student identities.</td></tr>
+    <tr><td><code>data/faculty_roster.tsv</code></td><td>Faculty names, phone numbers, emails.</td></tr>
+    <tr><td><code>uploads_tmp/</code>, <code>archive/</code>, <code>outbox/</code></td><td>Uploaded rosters, archived cycles, generated emails — all personal data.</td></tr>
+    <tr><td><code>__pycache__/</code></td><td>Python build junk — regenerated automatically.</td></tr>
+  </table>
+  <p class="step-note">Everything else — the Python files, the HTML templates, the <code>.md</code> guides
+  — is pushed. So a fresh copy of the repo has the full working app but none of your data or secrets.</p>
+
+  <h3>First-time push (run inside the <code>app/</code> folder)</h3>
+  <p>Use <b>Git Bash</b> on Windows. Each line is one step; run them in order.</p>
+  <pre><code>git init
+git add .
+git ls-files | grep -E "\.db|\.env|\.tsv|xlsx|__pycache__"   <span style="color:#8fb7d9"># SAFETY CHECK</span>
+<span style="color:#8fb7d9"># ^ this must print NOTHING. If it lists any file, stop — do not commit.</span>
+git commit -m "SRET Feedback System — code only"
+git branch -M main
+git remote add origin https://github.com/&lt;you&gt;/&lt;repo&gt;.git
+git push -u origin main</code></pre>
+  <div class="tip">The <code>git ls-files | grep …</code> line is your seat-belt: it lists any database,
+  secret, spreadsheet or cache that slipped into the repo. If it prints nothing, you are safe to commit.</div>
+
+  <h3>If GitHub blocks the push (“secret detected”)</h3>
+  <p>GitHub scans your <b>history</b>, not just the current files, so deleting a secret file is not enough
+  — the secret is still in an earlier commit. Do <b>not</b> click GitHub’s “allow secret” link (that would
+  publish it). Instead rebuild the history clean:</p>
+  <pre><code>rm -rf .git            <span style="color:#8fb7d9"># PowerShell: Remove-Item -Recurse -Force .git</span>
+git init
+git add .
+git ls-files | grep -E "\.db|\.env|\.tsv|xlsx"   <span style="color:#8fb7d9"># must be empty</span>
+git commit -m "SRET Feedback System — code only"
+git branch -M main
+git remote add origin https://github.com/&lt;you&gt;/&lt;repo&gt;.git
+git push -u origin main --force</code></pre>
+  <p class="step-note">Because <code>.gitignore</code> is now in place, the secret and data files are not
+  re-added, and the brand-new history contains no trace of them.</p>
+
+  <div class="warn"><b>If a Gmail secret was ever pushed</b>, rotate it afterwards: Google Cloud Console →
+  APIs &amp; Services → Credentials → your OAuth client → <b>Reset secret</b>, then paste the new value into
+  <code>app/.env</code>. Your refresh token keeps working (it is tied to the client ID, not the secret value).</div>
+</section>
+
+<!-- ===================== HOSTING (PYTHONANYWHERE) ===================== -->
+<section id="hosting">
+  <h2><span class="who admin">ADMIN</span> &nbsp;Hosting the system on PythonAnywhere</h2>
+  <p>Running on your laptop only works on the college LAN. Hosting on <b>PythonAnywhere</b> puts the app on
+  the public internet, so students (and faculty/leaders) can open their links from anywhere. The free
+  <b>Beginner</b> plan is enough for a pilot; the <b>Developer</b> plan (about ₹840/month) adds a custom
+  domain and higher limits for a college-wide run.</p>
+
+  <div class="tip">Remember the split from the GitHub section: <b>code</b> reaches the server through git;
+  <b>your data</b> (the databases) reaches the server by a direct file upload — never through git.</div>
+
+  <h3>Step 1 — Create the account</h3>
+  <ol class="steps">
+    <li>Sign up at <code>pythonanywhere.com</code>. The free <b>Beginner</b> plan is fine to start.</li>
+  </ol>
+
+  <h3>Step 2 — Get the code onto the server</h3>
+  <ol class="steps">
+    <li>Open a <b>Bash console</b> (Consoles tab → “Bash”).</li>
+    <li>Clone your repository:
+      <pre><code>git clone https://github.com/&lt;you&gt;/&lt;repo&gt;.git feedback-system</code></pre>
+      You now have <code>/home/&lt;username&gt;/feedback-system/</code> containing your <code>app/</code>
+      files. <span class="step-note">(Your repo <em>is</em> the app folder, so the Python files sit directly
+      inside <code>feedback-system/</code>.)</span></li>
+  </ol>
+
+  <h3>Step 3 — Virtualenv &amp; dependencies</h3>
+  <ol class="steps">
+    <li>In the Bash console, create the environment and install the three libraries:
+      <pre><code>mkvirtualenv --python=/usr/bin/python3.10 feedback
+pip install -r /home/&lt;username&gt;/feedback-system/requirements.txt</code></pre>
+      <span class="step-note">Later, <kbd>workon feedback</kbd> re-enters this environment in a new console.</span></li>
+  </ol>
+
+  <h3>Step 4 — Put your data on the server</h3>
+  <p>The clone has <b>no databases</b> (they are git-ignored on purpose). Choose ONE of these:</p>
+  <ol class="steps">
+    <li><b>Option A — Upload your existing database (recommended; keeps everything).</b>
+      On your laptop, go to the PythonAnywhere <b>Files</b> tab, navigate into
+      <code>feedback-system/data/</code> (create the <code>data</code> folder if needed), and
+      <b>Upload</b> your local <code>app/data/master.db</code>. This carries your 64 faculty, the leader
+      accounts, categories and questions exactly as they are.</li>
+    <li><b>Option B — Rebuild from scratch on the server.</b> In the Bash console:
+      <pre><code>cd /home/&lt;username&gt;/feedback-system
+python init_db.py
+python migrate_v2_module1.py
+python migrate_v2_module5_faculty.py
+python seed_leaders.py
+<span style="color:#8fb7d9"># upload app/data/faculty_roster.tsv via the Files tab first, then:</span>
+python seed_faculty.py</code></pre>
+      This builds a fresh master database with all leader accounts and the faculty roster.</li>
+  </ol>
+
+  <h3>Step 5 — Create the web app</h3>
+  <ol class="steps">
+    <li>Go to the <b>Web</b> tab → <span class="click">Add a new web app</span>.</li>
+    <li>Choose <b>Manual configuration</b> (NOT “Flask”), then <b>Python 3.10</b>.</li>
+    <li>On the web app’s settings page set:
+      <ul>
+        <li><b>Virtualenv:</b> <code>/home/&lt;username&gt;/.virtualenvs/feedback</code></li>
+        <li><b>Source code</b> and <b>Working directory:</b> <code>/home/&lt;username&gt;/feedback-system</code></li>
+      </ul>
+    </li>
+  </ol>
+
+  <h3>Step 6 — The WSGI file (this is where your secrets live)</h3>
+  <ol class="steps">
+    <li>On the Web tab, click the <b>WSGI configuration file</b> link (path like
+      <code>/var/www/&lt;username&gt;_pythonanywhere_com_wsgi.py</code>).</li>
+    <li><b>Delete everything</b> in it and paste this, replacing <code>&lt;username&gt;</code> and the
+      four Gmail values with the ones from your working <code>app/.env</code>:
+      <pre><code>import os, sys
+
+APP_DIR = "/home/&lt;username&gt;/feedback-system"
+if APP_DIR not in sys.path:
+    sys.path.insert(0, APP_DIR)
+
+<span style="color:#8fb7d9"># --- Secrets &amp; config (this file lives on the server, never in git) ---</span>
+os.environ["FEEDBACK_SECRET_KEY"] = "put-a-long-random-string-here"
+
+<span style="color:#8fb7d9"># Gmail API — copy these from your app/.env</span>
+os.environ["FEEDBACK_GMAIL_CLIENT_ID"]     = "….apps.googleusercontent.com"
+os.environ["FEEDBACK_GMAIL_CLIENT_SECRET"] = "GOCSPX-…"
+os.environ["FEEDBACK_GMAIL_REFRESH_TOKEN"] = "1//0g…"
+os.environ["FEEDBACK_GMAIL_FROM"]          = "feedback@sret.edu.in"
+
+<span style="color:#8fb7d9"># So emailed links (student, leader set-password, ATR) point at the live site</span>
+os.environ["FEEDBACK_PUBLIC_BASE_URL"] = "https://&lt;username&gt;.pythonanywhere.com"
+
+<span style="color:#8fb7d9"># v2.1 — the two testing-level inboxes (student + staff test inboxes)</span>
+os.environ["FEEDBACK_TEST_EMAIL"]          = "aishwarya.bramma@gmail.com"
+os.environ["FEEDBACK_FACULTY_ALIAS_EMAIL"] = "aishwarya@sret.edu.in"
+
+from __init__ import create_app
+application = create_app()</code></pre>
+    </li>
+    <li><b>Save</b> the file.</li>
+  </ol>
+  <table>
+    <tr><th>Variable</th><th>What it does</th></tr>
+    <tr><td><code>FEEDBACK_SECRET_KEY</code></td><td>Signs login/session cookies. Any long random string.</td></tr>
+    <tr><td><code>FEEDBACK_GMAIL_*</code></td><td>The four Gmail API values that let the app send as <code>feedback@sret.edu.in</code>.</td></tr>
+    <tr><td><code>FEEDBACK_PUBLIC_BASE_URL</code></td><td>Your public address, so links inside emails work off-campus (leader set-password, ATR, student form).</td></tr>
+    <tr><td><code>FEEDBACK_TEST_EMAIL</code></td><td><b>(v2.1)</b> Student test inbox — Levels 1 &amp; 2 send every student email here.</td></tr>
+    <tr><td><code>FEEDBACK_FACULTY_ALIAS_EMAIL</code></td><td><b>(v2.1)</b> Staff test inbox — Level 1 sends faculty &amp; leader email here.</td></tr>
+  </table>
+  <div class="tip"><b>This deployment keeps all settings in the WSGI file — there is no <code>.env</code> on
+  the server.</b> (The app <i>could</i> also read an uploaded <code>app/.env</code>, but you don't need it and
+  should never use both.) Keep <code>FEEDBACK_SECRET_KEY</code> and the Gmail values only on the server,
+  never in git. You do <b>not</b> set <code>FEEDBACK_TSA_URL</code> here — audit signing is done on your
+  laptop (section 8a).</div>
+
+  <h3>Step 7 — Reload and open</h3>
+  <ol class="steps">
+    <li>Click the big green <span class="click">Reload</span> button on the Web tab.</li>
+    <li>Open <code>https://&lt;username&gt;.pythonanywhere.com/</code> — it should redirect to your admin
+      dashboard. You are now live on the public internet.</li>
+  </ol>
+
+  <h3>Step 8 — First-run checks on the live site</h3>
+  <ol class="steps">
+    <li><b>Send leader invites.</b> Go to <b>Users &amp; Roles</b> and send the set-password links — because
+      <code>FEEDBACK_PUBLIC_BASE_URL</code> is set, the links now point at the public site.</li>
+    <li><b>Assign faculty departments.</b> On <b>Manage Faculty</b>, set each faculty’s home department (and
+      mark any external faculty), so ATR routing works.</li>
+    <li><b>Do a TEST cycle first.</b> Create a cycle marked <b>Test</b> — every email is redirected to your
+      own inbox, so you can confirm real delivery before mailing any student.</li>
+    <li>Once the test looks right, run a normal (non-test) cycle for real students.</li>
+  </ol>
+
+  <h3>Gotchas &amp; checklist</h3>
+  <ul>
+    <li>Databases reach the server via the <b>Files</b> tab, never git.</li>
+    <li>The WSGI app object must be named <code>application</code>.</li>
+    <li>Generate/send links while browsing the <code>pythonanywhere.com</code> URL so links point at the public site.</li>
+    <li>Gmail API talks to <code>googleapis.com</code>, which is on the free-tier allowlist — real sending works without upgrading.</li>
+    <li>Free plan: log in to PythonAnywhere at least every ~3 months or the app is disabled; a custom domain needs the Developer plan.</li>
+    <li>Do a <b>Test-cycle</b> send first (mail comes to you) before mailing real students.</li>
+  </ul>
+</section>
+
+<!-- ===================== UPDATING THE SERVER ===================== -->
+<section id="updating">
+  <h2><span class="who admin">ADMIN</span> &nbsp;Updating the server after a change</h2>
+  <p>When a change is made to the <b>code</b> and tested on your laptop, the live PythonAnywhere site does
+  NOT update by itself. You push the change to GitHub, pull it on the server, and reload. Always do it this
+  way — pushing the whole project through git — rather than copying single files by hand, which quietly
+  breaks a page when one line is missed.</p>
+
+  <div class="warn"><b>Golden rule:</b> code changes travel through <b>git</b> (push from laptop → pull on
+  server → reload). Your <b>WSGI file</b> (where your secrets live, in <code>/var/www/</code>, outside the
+  repo) and your databases are never touched by this — git ignores the databases and never sees the WSGI
+  file.</div>
+
+  <h3>Step 1 — Push from your laptop (in the app folder)</h3>
+  <pre><code>git add .
+git commit -m "describe what changed"
+git push</code></pre>
+
+  <h3>Step 2 — Pull onto the server (PythonAnywhere Bash console)</h3>
+  <pre><code>cd ~/feedback-system
+git fetch origin
+git reset --hard origin/main</code></pre>
+  <p class="step-note"><code>git reset --hard origin/main</code> forces the server's code to become an exact
+  copy of what you just pushed — so every changed file lands together, correctly. It does NOT touch your
+  WSGI file (your secrets live there, in <code>/var/www/</code>, outside the repo) or your
+  <code>data/</code> databases (git ignores those), so your secrets and data are safe.</p>
+
+  <h3>Step 3 — Reload the web app</h3>
+  <pre><code>touch /var/www/SRETfeedback_pythonanywhere_com_wsgi.py</code></pre>
+  <p class="step-note">…or just click the green <span class="click">Reload</span> button on the Web tab.
+  Then refresh the page you changed.</p>
+
+  <div class="tip"><b>Data-only changes are different.</b> If you changed <em>data</em> rather than code —
+  for example a maintenance script that edits <code>master.db</code>, or a fixed roster — git will not carry
+  it (databases are git-ignored). For those, either run the same script on the server
+  (<code>python &lt;script&gt;.py</code> in the Bash console) or re-upload the database via the Files tab.</div>
+
+  <h3>If something breaks after a change</h3>
+  <ol class="steps">
+    <li>Open the <b>error log</b>: Web tab → <b>Log files</b> → <b>Error log</b>
+      (<code>SRETfeedback.pythonanywhere.com.error.log</code>), or in a Bash console:
+      <pre><code>tail -n 40 /var/log/SRETfeedback.pythonanywhere.com.error.log</code></pre>
+      The newest error is at the bottom; the last line names the file, line number and problem.</li>
+    <li>Fix it on your laptop, test, then repeat Steps 1–3. Avoid hand-editing on the server — it drifts
+      out of sync with GitHub and causes exactly the kind of one-line breakages that are hard to find.</li>
+  </ol>
+</section>
+
+<!-- ===================== PRIVACY ===================== -->
+<section id="privacy">
+  <h2>A word on privacy — for everyone</h2>
+  <div class="priv">Student answers are <b>anonymous by design</b>. The system stores <em>who
+  participated</em> (so reminders can be sent) completely separately from <em>the answers themselves</em>,
+  in different files that share no link — so an answer can never be traced back to a student. The
+  activity log records the people who <em>run</em> the system (Admin, Leaders, Faculty), and never
+  records a student's submission. Reports show scores and averages, never individual responses.</div>
+</section>
+
+</div>
+
+<footer>
+  SRET Feedback System · user guide · keep this page alongside the app on the college LAN.
+</footer>
+
+</body>
+</html>

@@ -75,10 +75,46 @@ def _faculty_name(master, offering):
 # ----------------------------------------------------------------------------
 # gather(master, cycle_row) -> dict — assemble every figure the report prints.
 # ----------------------------------------------------------------------------
+def _ist_str(ts):
+    """Convert a stored UTC timestamp ('YYYY-MM-DD HH:MM:SS', from SQLite
+    datetime('now')) to IST for display. India is a fixed UTC+5:30 with no DST, so
+    the offset is exact regardless of what timezone the server itself runs in.
+    Returns the input unchanged if it can't be parsed."""
+    if not ts:
+        return ts
+    try:
+        dt = datetime.datetime.strptime(str(ts)[:19], "%Y-%m-%d %H:%M:%S")
+        return (dt + datetime.timedelta(hours=5, minutes=30)
+                ).strftime("%Y-%m-%d %H:%M:%S") + " IST"
+    except Exception:
+        return ts
+
+
 def gather(master, cycle_row):
     code = cycle_row["code"]
-    data = {"cycle": cycle_row, "generated_at":
-            datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    # "Generated" time in IST. The server (PythonAnywhere) runs in UTC, so
+    # datetime.now() there is UTC — 5h30 behind India. India has no DST, so a fixed
+    # +5:30 offset off UTC is always correct; we label it IST to be unambiguous.
+    _ist = datetime.datetime.utcnow() + datetime.timedelta(hours=5, minutes=30)
+    data = {"cycle": cycle_row,
+            "generated_at": _ist.strftime("%Y-%m-%d %H:%M:%S") + " IST"}
+
+    # --- Semester (Odd/Even) --------------------------------------------------
+    # Prefer the cycle's own `semester` field; but many cycles were created without
+    # it set, so if it's blank we DERIVE it from the cycle's offerings — the
+    # allocation stamps ODD/EVEN on every course row. This is why the header showed
+    # just "—": the cycle had no semester, though the courses did.
+    try:
+        _sem = (cycle_row["semester"] or "").strip()
+    except Exception:
+        _sem = ""
+    if not _sem:
+        row = master.execute(
+            "SELECT semester FROM offering WHERE cycle_code=? "
+            "AND semester IS NOT NULL AND TRIM(semester) <> '' LIMIT 1",
+            (code,)).fetchone()
+        _sem = ((row["semester"] or "").strip() if row else "")
+    data["semester"] = _sem
 
     # --- Roster (students "as submitted"), by department ---
     roster = master.execute(
@@ -148,7 +184,7 @@ def gather(master, cycle_row):
                     if users.get(str(e["actor_user_id"])) else "user#%s" % e["actor_user_id"]))
             trail.append("%s — %s%s (%s)" % (
                 e["action"].title(), who,
-                (": " + e["comment"]) if e["comment"] else "", e["at"]))
+                (": " + e["comment"]) if e["comment"] else "", _ist_str(e["at"])))
         atrs.append({
             "dept": o["dept_code"], "course_code": o["course_code"],
             "course_name": o["course_name"] or "",
@@ -185,11 +221,9 @@ def _pdf_bytes(data, watermark=None):
     story.append(Paragraph("<b>End-of-Cycle Audit Report</b>", ss["Title"]))
     if watermark:
         story.append(Paragraph("<font color='#b23'><b>%s</b></font>" % watermark, ss["BodyText"]))
-    # Semester (Odd/Even) comes straight off the cycle row; shown title-cased.
-    try:
-        _sem = (c["semester"] or "").strip()
-    except Exception:
-        _sem = ""
+    # Semester (Odd/Even): resolved in gather() — cycle field first, else derived
+    # from the cycle's offerings — so it shows even when the cycle field is blank.
+    _sem = (data.get("semester") or "").strip()
     sem_disp = {"ODD": "Odd", "EVEN": "Even"}.get(_sem.upper(), _sem or "—")
     meta = ("Cycle: <b>%s — %s</b> &nbsp;|&nbsp; Academic year: %s &nbsp;|&nbsp; "
             "Semester: <b>%s</b> &nbsp;|&nbsp; Status: <b>%s</b> &nbsp;|&nbsp; "
