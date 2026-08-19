@@ -488,6 +488,16 @@ CREATE TABLE IF NOT EXISTS app_user (
     scope_dept_ids TEXT NOT NULL DEFAULT '', -- CSV of E-codes, or 'ALL' for whole college
     pw_hash        TEXT NOT NULL DEFAULT '', -- pbkdf2_hmac hash; '' until the user sets a password
     status         TEXT NOT NULL DEFAULT 'active', -- 'active' | 'disabled'
+    -- atr_email_enabled (email-preference switch, added post-v2.2) — governs ONLY
+    -- the per-ATR endorsement notification emails this leader receives from
+    -- notifications.py (the "each ATR transaction fires a mail" stream that floods
+    -- the Vice Dean/Dean). 1 = send exactly as before (the DEFAULT, so every
+    -- existing row keeps its current behaviour and nothing changes on deploy);
+    -- 0 = this leader is silently skipped as an ATR-mail recipient. It does NOT
+    -- affect the once-per-cycle roll-up in distribution.py, nor any faculty/student
+    -- mail — it is a leaders-only, ATR-endorsement-only mute. Edited on the admin
+    -- Users & Roles page (admin/users.py); read by notifications._leader_email().
+    atr_email_enabled INTEGER NOT NULL DEFAULT 1,
     last_login_at  TEXT,                     -- stamped by the login route (Module 2/D4)
     created_by     TEXT,                     -- admin email who created the row (audit)
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))

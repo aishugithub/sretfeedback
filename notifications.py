@@ -124,20 +124,38 @@ def atr_file_url(base, jti):
 #   DEAN       -> the single app_user with role DEAN (college-wide)
 # Returns None if the seat is unfilled (e.g. a dept with no HOD wired yet), so
 # the caller can record a clean "no recipient" rather than crash.
+#
+# EMAIL-PREFERENCE SWITCH (opt-out): both queries also require
+# `atr_email_enabled = 1`. A leader who has been switched OFF on the admin Users
+# & Roles page therefore resolves to None here — i.e. is treated EXACTLY like an
+# unfilled seat: the ATR endorsement email is skipped, no error is raised, and
+# because the ATR still sits in that leader's portal queue, the workflow proceeds
+# untouched. This is the single choke-point for the per-ATR mail flood, so muting
+# one leader here silences every ATR-transaction email to them (SUBMIT → HOD,
+# ENDORSE → VD/Dean, RETURN, and the CLOSED acknowledgement) in one place. It
+# deliberately does NOT touch distribution.py's once-per-cycle roll-up.
 # ----------------------------------------------------------------------------
 def _leader_email(master, role, dept_code):
     if role == atr_workflow.ROLE_DEAN:
+        # `atr_email_enabled = 1` filters out a Dean who opted out of ATR mail; the
+        # row then simply isn't found and we return None (no recipient), the same
+        # graceful path as an unfilled Dean seat.
         row = master.execute(
             "SELECT email FROM app_user WHERE role = ? AND status = 'active' "
+            "AND atr_email_enabled = 1 "
             "ORDER BY id LIMIT 1", (atr_workflow.ROLE_DEAN,)).fetchone()
         return row["email"] if row else None
 
     col = ("hod_user_id" if role == atr_workflow.ROLE_HOD
            else "vice_dean_user_id")
+    # `u.atr_email_enabled = 1` (aliased to the app_user side of the join) drops an
+    # HOD/Vice Dean who opted out: the join yields no row, so this dept's ATR mail
+    # for that role is skipped while the ATR itself still queues in their portal.
     row = master.execute(
         "SELECT u.email AS email "
         "FROM department d JOIN app_user u ON u.id = d.%s "
-        "WHERE d.code = ? AND u.status = 'active'" % col,
+        "WHERE d.code = ? AND u.status = 'active' "
+        "AND u.atr_email_enabled = 1" % col,
         (dept_code,)).fetchone()
     return row["email"] if row else None
 

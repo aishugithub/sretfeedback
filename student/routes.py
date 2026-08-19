@@ -239,12 +239,35 @@ def course_submit(token, offering_id):
         fast = False
     straight_lined = 1 if (len(set(rating_vals)) == 1 and fast) else 0
 
-    # Lock the template version the instant the first real response uses it, so
-    # the professor can no longer edit it mid-cycle (spec 6.3). Idempotent.
-    master.execute(
-        "UPDATE template_version SET is_locked=1 WHERE id=? AND is_locked=0", (tv_id,))
-    master.commit()
+    # Lock the template version the instant the first real response uses it, so the
+    # professor can no longer edit it mid-cycle (spec 6.3).
+    #
+    # CONCURRENCY GUARD (502 fix): this used to run an UPDATE + commit on EVERY
+    # submission, taking a master.db WRITE lock each time — even though only the
+    # very first submission actually flips is_locked 0->1. When a whole class
+    # submits together, that serialised every student on master.db's single writer
+    # and was a prime cause of slow responses / broken-pipe 502s. We now READ
+    # is_locked first (a WAL read never blocks a writer and vice-versa) and only
+    # acquire the write lock while it is still 0. After the first student locks the
+    # version, every later student skips the master write entirely — so the hot
+    # path touches master.db read-only.
+    tv_row = master.execute(
+        "SELECT is_locked FROM template_version WHERE id=?", (tv_id,)).fetchone()
+    if tv_row is not None and not tv_row["is_locked"]:
+        master.execute(
+            "UPDATE template_version SET is_locked=1 WHERE id=? AND is_locked=0", (tv_id,))
+        master.commit()
     master.close()
+
+    # Fetch the student's full course list NOW, BEFORE we open the cycle write
+    # transaction below. It is a master.db read; doing it here (rather than in the
+    # middle of the cycle write, as the code used to) means the cycle's single
+    # write lock is held only for the handful of INSERT/UPDATE statements and their
+    # commit — not while we round-trip to master.db. Shorter lock hold == less
+    # contention when a whole class submits at once (502 fix). `all_ids` is every
+    # course this student must complete; we compare against it after the writes.
+    _student, _courses = _student_and_courses(tok, cycle)
+    all_ids = {o["id"] for o in _courses}
 
     # ---- GROUP B WRITE (anonymous) -------------------------------------------
     # One `response` row (course + version + time, NO identity) and one `answer`
@@ -276,10 +299,10 @@ def course_submit(token, offering_id):
     # reference response_id or any answer; the two writes are unlinkable.
     progress[offering_id] = "done"
 
-    # Did this complete every course? Recompute the student's full course list to
-    # decide completed_all (a student with 6 courses is done only at all 6).
-    student, courses = _student_and_courses(tok, cycle)
-    all_ids = {o["id"] for o in courses}
+    # Did this complete every course? `all_ids` was fetched BEFORE the cycle write
+    # (above), so we do NOT reopen master.db in the middle of this open cycle
+    # transaction. `done_ids` is pure in-memory dict work — no I/O — keeping the
+    # write-lock window minimal. A student with 6 courses is "done" only at all 6.
     done_ids = {oid for oid, v in progress.items() if v == "done"}
     completed_all = all_ids.issubset(done_ids) and len(all_ids) > 0
 

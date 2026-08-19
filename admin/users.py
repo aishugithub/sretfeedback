@@ -330,7 +330,8 @@ def users_list():
     master = get_master()
     rows = master.execute(
         "SELECT id, email, name, role, scope_dept_ids, "
-        "       (pw_hash != '') AS has_pw, status, last_login_at, created_at "
+        "       (pw_hash != '') AS has_pw, status, atr_email_enabled, "
+        "       last_login_at, created_at "
         "FROM app_user"
     ).fetchall()
     master.close()
@@ -389,12 +390,16 @@ def user_new():
             roles=_ROLES, role_label=_ROLE_LABEL, dept_codes=Config.DEPT_CODES,
             selected_codes=request.form.getlist("scope"))
 
+    # Email-preference switch at creation. An unchecked box means "don't send this
+    # leader the per-ATR endorsement mails"; a ticked box (the default in the form)
+    # means 1. HTML only POSTs a checkbox when it is ticked, so absence == 0.
+    atr_email = 1 if request.form.get("atr_email") == "on" else 0
     # pw_hash stays '' — the leader sets their own password from the invite link.
     master.execute(
         "INSERT INTO app_user (email, name, role, scope_dept_ids, pw_hash, "
-        "                      status, created_by) "
-        "VALUES (?, ?, ?, ?, '', 'active', ?)",
-        (email, name, role, scope, "admin:users_page"))
+        "                      status, atr_email_enabled, created_by) "
+        "VALUES (?, ?, ?, ?, '', 'active', ?, ?)",
+        (email, name, role, scope, atr_email, "admin:users_page"))
     new_id = master.execute(
         "SELECT id FROM app_user WHERE email = ?", (email,)).fetchone()["id"]
     # v2.2 (§18.4): mirror the (possibly multi-department) scope onto
@@ -445,6 +450,9 @@ def user_edit(user_id):
     email, e_err = _validate_email(request.form.get("email", ""))
     scope, s_err = _compute_scope(role, request.form.getlist("scope"))
     status = "disabled" if request.form.get("disabled") == "on" else "active"
+    # Email-preference switch: ticked "Send ATR notification emails" -> 1, else 0.
+    # A checkbox is absent from the POST when unticked, so "!= 'on'" reads as 0.
+    atr_email = 1 if request.form.get("atr_email") == "on" else 0
 
     err = e_err or (None if role in _ROLES else "Please choose a valid role.") or s_err
     if err:
@@ -463,8 +471,8 @@ def user_edit(user_id):
 
     master.execute(
         "UPDATE app_user SET name = ?, email = ?, role = ?, scope_dept_ids = ?, "
-        "                    status = ? WHERE id = ?",
-        (name, email, role, scope, status, user_id))
+        "                    status = ?, atr_email_enabled = ? WHERE id = ?",
+        (name, email, role, scope, status, atr_email, user_id))
     # v2.2 (§18.4): re-mirror scope onto department.hod_user_id. This also handles
     # a role CHANGE away from HOD (the user is detached from every dept) and a
     # scope that DROPS a department (that dept's pointer is cleared) — all inside
@@ -474,8 +482,9 @@ def user_edit(user_id):
     master.commit()
     master.close()
 
-    activity_log.note(detail="Edited leader %s (%s, scope %s, %s)"
-                      % (email, role, scope, status))
+    activity_log.note(detail="Edited leader %s (%s, scope %s, %s, ATR-mail %s)"
+                      % (email, role, scope, status,
+                         "on" if atr_email else "off"))
     flash("Saved.", "success")
     for w in warns:
         flash(w, "success")

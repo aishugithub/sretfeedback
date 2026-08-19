@@ -43,7 +43,7 @@
     <thead>
       <tr>
         <th>Role</th><th>Name</th><th>Email</th><th>Scope</th>
-        <th>Password</th><th>Last login</th><th>Status</th><th>Actions</th>
+        <th>Password</th><th>Last login</th><th>Status</th><th>ATR mail</th><th>Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -75,6 +75,16 @@
               <span class="pill ok">active</span>
             {% else %}
               <span class="pill warn">disabled</span>
+            {% endif %}
+          </td>
+          <td>
+            {# The per-ATR email switch. 'on' = this leader is emailed on every ATR
+               transaction; 'off' = muted (they still see ATRs in the portal). Edit
+               it on this row's Edit form. #}
+            {% if u.atr_email_enabled %}
+              <span class="pill ok" title="Emailed on every ATR transaction">on</span>
+            {% else %}
+              <span class="pill warn" title="Muted — ATRs still appear in the portal queue">off</span>
             {% endif %}
           </td>
           <td style="white-space:nowrap">

@@ -52,6 +52,18 @@ def _configure(conn: sqlite3.Connection) -> sqlite3.Connection:
     # across application crashes; a good speed/safety balance for a laptop host.
     conn.execute("PRAGMA synchronous=NORMAL;")
 
+    # PRAGMA busy_timeout=15000 (15s) — the CONCURRENCY fix. WAL lets readers and
+    # the writer coexist, but SQLite still permits only ONE writer at a time. When
+    # a whole class hits /submit together, two submissions can reach for the write
+    # lock at the same instant. Without a busy timeout the loser raises
+    # "database is locked" almost immediately (and the student sees an error);
+    # with it, that connection simply WAITS up to 15s for the lock to free — which
+    # in practice is a few hundred milliseconds — and then proceeds. This is the
+    # single most important line for surviving a lab-sized burst on a server with
+    # few web workers (e.g. PythonAnywhere), turning hard lock errors into short,
+    # invisible waits. Applied on EVERY connection (master and cycle) via _configure.
+    conn.execute("PRAGMA busy_timeout=15000;")
+
     return conn
 
 

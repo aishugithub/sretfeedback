@@ -21,7 +21,7 @@
       <strong>✓ Mail: DEV mode (outbox) — no real email will be sent.</strong>
       Reminders are written as <code>.eml</code> files into <code>app/outbox/</code>.
     </div>
-  {% elif mail.is_test %}
+  {% elif not mail.reaches_students %}
     <div class="flash" style="background:#fbf1d6; color:#7a5a00; border:1px solid #e6cf8a">
       <strong>⚠ Mail: SMTP LIVE, but this is a TEST cycle.</strong>
       Reminders send via <code>{{ mail.host }}</code> but are all redirected to
@@ -49,7 +49,7 @@
         "⚠ REAL REMINDER EMAIL TO REAL STUDENTS\n\n" +
         "SMTP is live ({{ mail.host }}) and this is NOT a test cycle, so every " +
         "pending student gets a real reminder. This cannot be undone.\n\nSend for real?");
-      {% elif mail.is_test %}
+      {% elif not mail.reaches_students %}
       return confirm(
         "Reminders will send, but this is a TEST cycle so they all go to " +
         "{{ mail.test_redirect }} (students are NOT contacted).\n\nContinue?");

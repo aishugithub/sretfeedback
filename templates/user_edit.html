@@ -74,6 +74,26 @@
         </div>
       </div>
 
+      {# Email-preference switch. Governs ONLY the per-ATR endorsement emails this
+         leader receives (the stream that floods the Vice Dean/Dean); it does NOT
+         affect the once-per-cycle roll-up or any faculty/student mail. Ticked by
+         default (atr_on) so a new leader, or one whose row predates this field,
+         keeps receiving mail unless you deliberately switch it off here. #}
+      {% set atr_on = (not user) or (user.atr_email_enabled is not defined)
+                       or user.atr_email_enabled %}
+      <div class="field">
+        <label>
+          <input type="checkbox" name="atr_email" {{ 'checked' if atr_on else '' }}>
+          Send ATR notification emails to this leader
+        </label>
+        <div class="muted" style="margin-top:4px">
+          Untick to stop emailing this leader every time an ATR is filed/endorsed
+          (useful for the Vice Dean &amp; Dean, who oversee every department). They
+          still see all their ATRs in the portal queue — only the email nudge stops.
+          The once-per-cycle feedback roll-up email is unaffected.
+        </div>
+      </div>
+
       {% if is_edit %}
         <div class="field">
           <label>

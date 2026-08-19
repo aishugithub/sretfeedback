@@ -23,7 +23,7 @@
       SMTP is not configured, so each link is written as an <code>.eml</code> file into
       <code>app/outbox/</code>. Safe to test freely.
     </div>
-  {% elif mail.is_test %}
+  {% elif not mail.reaches_students %}
     <div class="flash" style="background:#fbf1d6; color:#7a5a00; border:1px solid #e6cf8a">
       <strong>⚠ Mail: SMTP LIVE, but this is a TEST cycle.</strong><br>
       Real mail <em>will</em> be sent via <code>{{ mail.host }}</code>, but EVERY message is
@@ -139,7 +139,7 @@
         "SMTP is live ({{ mail.host }}) and this is NOT a test cycle, so links " +
         "will be delivered to students' real inboxes. This cannot be undone.\n\n" +
         "Send for real?");
-      {% elif mail.is_test %}
+      {% elif not mail.reaches_students %}
       // AMBER case: real send, redirected to the test address.
       return confirm(
         "Real mail will be sent, but this is a TEST cycle so every message goes " +

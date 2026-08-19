@@ -44,8 +44,15 @@
       </div>
       <div class="field" style="margin:0">
         <label>Minimum responses to band</label>
-        <input name="min_responses" value="{{ cycle.min_responses or 10 }}"
-               style="width:120px" placeholder="10">
+        {# Show the cycle's ACTUAL stored value, defaulting to 0. We must test
+           `is not none` rather than write `... or 0`, because a real value of 0 is
+           falsy in Jinja: the old `cycle.min_responses or 10` printed 10 whenever
+           the true value was 0, which is exactly the bug this fixes. 0 means "band
+           every scored course" (mirrors the schema's DEFAULT 0), the same way the
+           POOR level defaults to 7.5. #}
+        <input name="min_responses"
+               value="{{ cycle.min_responses if cycle.min_responses is not none else 0 }}"
+               style="width:120px" placeholder="0">
       </div>
       <button class="btn" type="submit">Save &amp; re-classify</button>
     </form>
@@ -107,9 +114,14 @@
   <div class="card" style="margin-top:16px">
     <h3 style="margin-top:0">4 · Email the teachers</h3>
 
-    {# Live-mail status, mirroring the Tokens/Participation warning. #}
-    {% if cycle.is_test %}
-      <div class="warn"><b>TEST cycle:</b> unless you set a redirect address below,
+    {# Live-mail status, mirroring the Tokens/Participation warning. We branch on
+       reaches_faculty (NOT cycle.is_test) so the wording matches what the mailer
+       will really do at THIS test level: faculty are redirected to the staff test
+       inbox ONLY at Level 1, and receive real mail at Levels 2, 3 and Production.
+       Using cycle.is_test here wrongly showed the "redirected" notice at Level 3,
+       where faculty are in fact emailed for real. #}
+    {% if mail.live and not mail.reaches_faculty %}
+      <div class="warn"><b>TEST redirect (Level 1):</b> unless you set a redirect address below,
       every teacher email goes to the built-in <b>staff</b> test address
       <code>{{ mail.faculty_alias }}</code> — no real teacher is mailed.
       (The student test inbox <code>{{ mail.test_redirect }}</code> is only used for
