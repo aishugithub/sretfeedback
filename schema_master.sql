@@ -605,3 +605,20 @@ CREATE INDEX IF NOT EXISTS ix_activity_at     ON activity_log (at);
 CREATE INDEX IF NOT EXISTS ix_activity_actor  ON activity_log (actor_label);
 CREATE INDEX IF NOT EXISTS ix_activity_action ON activity_log (action);
 CREATE INDEX IF NOT EXISTS ix_activity_cycle  ON activity_log (cycle_code);
+
+
+-- ############################################################################
+-- GROUP C — COLLEGE-WIDE APP SETTINGS (a tiny generic key/value store)
+-- ############################################################################
+-- app_setting — one row per global switch that governs the WHOLE system (not a
+-- single cycle, not a single leader). Added Sept 2026 for the Dean's "ATR mode"
+-- master switch: key='atr_enabled', value='1' (ON, default) or '0' (OFF, hides
+-- the whole ATR / faculty-report-disclosure flow this cycle). Kept generic so
+-- the next global switch is just another key — no new table. Read/written via
+-- settings.py; exposed to every template by the context processor in
+-- app/__init__.py. On existing server DBs the table is added by
+-- migrate_app_settings.py; here it is declared so a FRESH install already has it.
+CREATE TABLE IF NOT EXISTS app_setting (
+    key   TEXT PRIMARY KEY,   -- stable setting name, e.g. 'atr_enabled'
+    value TEXT NOT NULL        -- stored as text ('1'/'0' for booleans)
+);

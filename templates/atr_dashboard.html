@@ -38,7 +38,7 @@
   {# ENDORSE ALL: only for whole-slate endorsers (Vice-Dean / Dean) and only when
      something is actually waiting on them. Endorses every ATR in their queue in
      one action — each still goes through the audited state machine. #}
-  {% if can_endorse_all and my_count > 0 %}
+  {% if atr_enabled and can_endorse_all and my_count > 0 %}
     <form method="post"
           action="{{ url_for('atr.atr_endorse_all', cycle_code=selected.code) }}"
           onsubmit="return confirm('Endorse ALL {{ my_count }} ATR(s) awaiting you? Each is recorded in the audit trail.');"
@@ -48,6 +48,10 @@
     </form>
   {% endif %}
 
+  {# ATR queue — shown only while ATR mode is ON (Dean's switch, Sept 2026).
+     When OFF, the queue, endorse and reminder actions vanish; the staff
+     report lists below stay visible so HODs keep full report access. #}
+  {% if atr_enabled %}
   {% if not rows %}
     <p class="stat">No ATRs in your scope for this cycle yet.</p>
   {% else %}
@@ -74,6 +78,7 @@
     {% endfor %}
   </table>
   {% endif %}
+  {% endif %}{# /atr_enabled — ATR queue #}
 
   {# ---- ALL staff reports (professor's rule): every in-scope course, all bands.
        The queue above is only the POOR courses that need an ATR; this section
@@ -84,6 +89,13 @@
     <h3 style="margin-top:26px">All staff reports — {{ all_offerings|length }} course(s) in your scope</h3>
     <p class="muted">Every course taught by your department's faculty this cycle,
     regardless of band. Download any report as Excel or PDF.</p>
+    {# DOWNLOAD-ALL (Dean, Sept 2026): one zip of every in-scope report, arranged
+       in a folder per staff member (atr.atr_reports_zip). Stays available even
+       when ATR mode is off — it is a report surface, not an ATR action. #}
+    <p style="margin:0 0 12px">
+      <a class="btn" href="{{ url_for('atr.atr_reports_zip', cycle_code=selected.code) }}">
+        &#8681; Download all reports (ZIP &mdash; one folder per staff member)</a>
+    </p>
     <table>
       <tr><th>Programme code</th><th>Course</th><th>Faculty</th><th>Band</th>
           <th>Overall</th><th>Responses</th><th>Report</th></tr>
@@ -95,7 +107,7 @@
           <td>
             {% if r.band %}
               <span class="pill {{ 'warn' if r.band=='POOR' else 'ok' }}">{{ r.band }}</span>
-              {% if r.has_atr %}<span class="pill">ATR</span>{% endif %}
+              {% if atr_enabled and r.has_atr %}<span class="pill">ATR</span>{% endif %}
             {% else %}<span class="muted">—</span>{% endif %}
           </td>
           <td>{{ '%.2f'|format(r.overall_score) if r.overall_score is not none else '—' }}</td>

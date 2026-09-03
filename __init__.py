@@ -114,6 +114,21 @@ def create_app() -> Flask:
     import activity_log
     activity_log.install(app)
 
+    # ------------------------------------------------------------------
+    # TEMPLATE CONTEXT: expose atr_enabled to EVERY template.
+    # ------------------------------------------------------------------
+    # The Dean's "ATR mode" master switch (settings.atr_enabled(), stored in
+    # master.db.app_setting) decides whether the whole ATR / faculty-report-
+    # disclosure flow is shown. Rather than pass it from every route, we register
+    # it as a Jinja context processor so any template can simply branch on
+    # `atr_enabled` — the HOD dashboard hides its ATR sections, the distribute
+    # page hides the "Send report to faculties" button, etc. Defaults to True, so
+    # nothing is hidden until an admin actually switches ATR off.
+    @app.context_processor
+    def _inject_feature_flags():
+        import settings
+        return {"atr_enabled": settings.atr_enabled()}
+
     # Root URL -> the admin dashboard (the professor's home screen). Students
     # never visit "/"; they arrive directly at their /f/<token> link.
     @app.route("/")

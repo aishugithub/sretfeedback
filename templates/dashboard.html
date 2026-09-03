@@ -40,6 +40,38 @@
     {% endif %}
   </div>
 
+  {# ----------------------------------------------------------------------
+     ATR MODE master switch (Dean's ask, Sept 2026). `atr_enabled` comes from the
+     context processor in app/__init__.py (reads master.db.app_setting via
+     settings.py). When OFF, the whole ATR / faculty-report-disclosure flow is
+     hidden system-wide (HOD ATR queue, File-ATR links, ATR emails, and the
+     admin "Send report to faculties" button), while HODs keep full view/
+     download of every staff report in their portal. Flip it back ON here any
+     time — nothing is deleted, only hidden, so the flow revives intact.
+     ---------------------------------------------------------------------- #}
+  <div class="card">
+    <h3 style="margin-top:0">ATR mode
+      {% if atr_enabled %}<span class="pill ok">ON</span>
+      {% else %}<span class="pill warn">OFF</span>{% endif %}
+    </h3>
+    <p class="muted" style="margin-top:0">
+      Controls the ATR / faculty-report flow across the whole system. When
+      <strong>OFF</strong>, HODs still log in and view or download every staff
+      report (including the new download-all ZIP), but the ATR queue, the
+      “File ATR” links, ATR emails and the admin “Send report to
+      faculties” button are all hidden, and no ATRs are created. Switching it
+      back ON restores everything exactly as before — nothing is lost.
+    </p>
+    <form method="post" action="{{ url_for('admin.toggle_atr') }}"
+          style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
+      <label style="display:flex; gap:8px; align-items:center; font-size:14px">
+        <input type="checkbox" name="atr_enabled" {{ 'checked' if atr_enabled }}>
+        Enable ATR mode (show the ATR flow &amp; faculty sending)
+      </label>
+      <button class="btn" type="submit">Save</button>
+    </form>
+  </div>
+
   <div class="card">
     <h3 style="margin-top:0">Feedback cycles</h3>
     <table>

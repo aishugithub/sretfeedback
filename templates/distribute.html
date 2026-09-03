@@ -111,6 +111,12 @@
   {% endif %}
 
   {# ---- 4. THE EMAIL + SEND ----------------------------------------------- #}
+  {# ATR MASTER SWITCH (Dean, Sept 2026): the whole "Email the teachers" step is
+     shown ONLY while ATR mode is ON. When OFF, reports are not sent to faculty
+     this cycle — HODs view/download them in their portal instead — so we hide
+     the send card and show a short note. Switch ATR back ON (admin dashboard)
+     to bring sending back. #}
+  {% if atr_enabled %}
   <div class="card" style="margin-top:16px">
     <h3 style="margin-top:0">4 · Email the teachers</h3>
 
@@ -164,5 +170,15 @@
     <b>single combined PDF</b> of all their courses; any course below the POOR level
     carries a “File your ATR” link in that same email.</p>
   </div>
+  {% else %}
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin-top:0">4 · Email the teachers</h3>
+    <div class="tip"><b>ATR mode is OFF for this cycle.</b> Reports are not being
+    sent to faculty. Heads of Department can view and download every staff
+    report — including a one-click <b>download-all ZIP</b> — from their portal.
+    To send results to faculty again, switch <b>ATR mode</b> back on from the
+    admin dashboard.</div>
+  </div>
+  {% endif %}
 
 {% endblock %}

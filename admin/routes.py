@@ -14,6 +14,7 @@ from flask import (render_template, request, redirect, url_for, flash)
 from db import get_master
 from config import Config
 from admin import admin_bp
+import settings  # college-wide switches (ATR mode) — master.db key/value
 
 
 # ----------------------------------------------------------------------------
@@ -55,6 +56,38 @@ def dashboard():
                            n_offerings=n_offerings, n_uncat=n_uncat,
                            n_students=n_students, n_active=n_active,
                            cycles=cycles, ay=ay, cycle_code=cycle_code)
+
+
+# ----------------------------------------------------------------------------
+# POST /admin/settings/atr  —  the Dean's "ATR mode" master switch (Sept 2026)
+# ----------------------------------------------------------------------------
+# Turns the WHOLE ATR / faculty-report-disclosure flow ON or OFF, college-wide,
+# from a checkbox on the dashboard. When OFF (this cycle's ask): HODs still log
+# in and view/download every staff report in their portal, but the ATR queue,
+# the "File ATR" magic links, ATR emails and the admin "Send report to faculties"
+# button are all hidden — and no ATR rows are created. It is stored in
+# master.db.app_setting via settings.py, so flipping it back ON later fully
+# revives the flow with zero data loss (nothing was deleted, only hidden).
+#
+# The value is a simple checkbox: present in the POST => ON, absent => OFF. We
+# write it and flash a confirmation; the activity-log after_request hook records
+# WHO changed it (admin accountability), like every other admin action.
+# ----------------------------------------------------------------------------
+@admin_bp.route("/settings/atr", methods=["POST"])
+def toggle_atr():
+    # An unchecked HTML checkbox is simply NOT submitted, so "field present" is
+    # the clean signal for ON. We normalise to the strings settings.get_bool reads.
+    enabled = request.form.get("atr_enabled") == "on"
+    settings.set(settings.ATR_ENABLED_KEY, "1" if enabled else "0")
+    flash(
+        ("ATR mode is now ON — the ATR flow, faculty emails and the "
+         "\u201cSend report to faculties\u201d button are visible again.")
+        if enabled else
+        ("ATR mode is now OFF — HODs can still view/download reports in their "
+         "portal, but the ATR flow and faculty sending are hidden this cycle. "
+         "You can switch it back on here any time."),
+        "success")
+    return redirect(url_for("admin.dashboard"))
 
 
 # ----------------------------------------------------------------------------

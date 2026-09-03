@@ -44,7 +44,49 @@ import consolidation   # Aug 2026: group an elective's per-programme offerings i
 import auth_leaders
 import notifications
 import rbac
+import settings   # Dean's ATR master switch (master.db.app_setting)
 import datetime as _dt
+
+
+# ----------------------------------------------------------------------------
+# ATR "feature flag" guards  (Dean's ATR master switch, Sept 2026)
+# ----------------------------------------------------------------------------
+# settings.atr_enabled() (master.db.app_setting, toggled from the admin
+# dashboard) says whether the whole ATR flow is live. When it is OFF we must make
+# the ATR *action* surfaces unreachable even by a direct URL or a previously
+# emailed magic link — not just hidden in templates. These two tiny decorators do
+# exactly that, differing only in the friendly response they give:
+#   * _public  — for the faculty magic-link routes (/atr/file). The faculty has
+#                no login, so we render the neutral "link cannot be used" page.
+#   * _leader  — for the logged-in HOD/VD/Dean ATR actions (review / act /
+#                endorse-all / remind). We bounce them back to their dashboard
+#                (where reports are still available) with a short explanation.
+# The report routes (atr_report, the ZIP) and the dashboard itself are NOT
+# guarded — viewing/downloading reports stays on when ATR is off, by design.
+# Flip the switch back ON and every guarded route works again with no code change.
+# ----------------------------------------------------------------------------
+def atr_feature_required_public(f):
+    @wraps(f)
+    def _wrap(*args, **kwargs):
+        if not settings.atr_enabled():
+            return render_template(
+                "atr_invalid.html",
+                reason="The ATR filing flow is turned off for this feedback "
+                       "cycle.")
+        return f(*args, **kwargs)
+    return _wrap
+
+
+def atr_feature_required_leader(f):
+    @wraps(f)
+    def _wrap(*args, **kwargs):
+        if not settings.atr_enabled():
+            flash("ATR mode is turned off for this cycle — staff reports are "
+                  "still available below, but ATR actions are hidden.", "error")
+            return redirect(url_for("atr.atr_dashboard"))
+        return f(*args, **kwargs)
+    return _wrap
+
 
 
 def _ist(ts):
@@ -122,6 +164,7 @@ def _find_faculty_token(jti):
 # consume the link).
 # ----------------------------------------------------------------------------
 @atr_bp.route("/atr/file", methods=["GET"])
+@atr_feature_required_public
 def atr_file_form():
     jti = request.args.get("token", "").strip()
     cycle_row, cy, tok = _find_faculty_token(jti)
@@ -158,6 +201,7 @@ def atr_file_form():
 # atr_workflow; this route only orchestrates.
 # ----------------------------------------------------------------------------
 @atr_bp.route("/atr/file", methods=["POST"])
+@atr_feature_required_public
 def atr_file_submit():
     jti = request.args.get("token", request.form.get("token", "")).strip()
     body = (request.form.get("body", "") or "").strip()
@@ -628,6 +672,86 @@ def atr_report(cycle_code, offering_id, fmt):
 
 
 # ----------------------------------------------------------------------------
+# GET /atr/reports/<cycle_code>.zip  —  DOWNLOAD ALL staff reports as one ZIP
+# ----------------------------------------------------------------------------
+# The Dean's ask (Sept 2026): let a HOD pull EVERY report for their department in
+# one click, arranged on disk by staff. The archive is foldered by teacher:
+#     <Staff Name>/<course report>.pdf
+# so opening the zip gives one folder per faculty member with all of that
+# teacher's course reports inside.
+#
+# HOW IT REUSES EXISTING PARTS (no new scoring, no new access rule):
+#   * Scope: the SAME rbac.visible_offerings the dashboard uses, so a HOD only
+#     ever gets their own department — never a leak past it.
+#   * Grouping: consolidation.group_rows folds a shared elective's per-programme
+#     rows into ONE delivery, so the zip has one pooled report per class (not one
+#     per programme), exactly like the on-screen list.
+#   * Content: each delivery is pooled via members_of + scoring.score_offering_group
+#     and rendered by the SAME build_pdf_report as the single "PDF" button, so a
+#     file in the zip is byte-for-byte the individually-downloaded report.
+# A delivery with no scorable responses (uncategorised / nobody answered) is
+# skipped — there is simply no report to put in the folder.
+#
+# This route stays available even when ATR mode is OFF (it is a REPORT surface,
+# not an ATR action), which is the whole point of the Dean's "reports only" cycle.
+# ----------------------------------------------------------------------------
+@atr_bp.route("/atr/reports/<cycle_code>.zip")
+@leader_required
+def atr_reports_zip(cycle_code):
+    leader = _current_leader()
+    master = get_master()
+    cyc = _cycle_by_code(master, cycle_code)
+    if cyc is None:
+        master.close(); abort(404)
+    if not os.path.exists(db.cycle_db_path(cyc["academic_year"], cyc["code"])):
+        master.close()
+        flash("That cycle has no responses database yet.", "error")
+        return redirect(url_for("atr.atr_dashboard", cycle=cycle_code))
+
+    # Every offering this leader may see (Module 1 RBAC choke-point), grouped into
+    # deliveries so a shared elective is one pooled report, not one per programme.
+    visible = rbac.visible_offerings(master, leader, cycle_code)
+
+    import io, tempfile, scoring, report_export
+    from flask import send_file
+
+    cy = _open_cycle_db(cyc)
+    dl_weight = scoring.get_discussed_late_weight(master)
+
+    results = []
+    for _anchor, g in consolidation.group_rows(visible).items():
+        rep_id = g["rows"][0]["id"]                        # smallest-id member
+        member_ids = consolidation.members_of(master, cy, cycle_code, rep_id)
+        result = scoring.score_offering_group(master, cy, member_ids, dl_weight)
+        if result is None:
+            continue                                       # no report to include
+        if cyc["is_test"]:
+            result["watermark"] = "TESTING ONLY"           # match the PDF button
+        results.append(result)
+    cy.close(); master.close()
+
+    if not results:
+        flash("No staff reports with responses to download for this cycle yet.",
+              "error")
+        return redirect(url_for("atr.atr_dashboard", cycle=cycle_code))
+
+    # Build the staff-foldered zip to a temp file, read it back, and stream it.
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    tmp.close()
+    report_export.build_staff_foldered_pdf_zip(results, tmp.name)
+    with open(tmp.name, "rb") as fh:
+        data = fh.read()
+    os.unlink(tmp.name)                                    # never leave temp files
+
+    download_name = f"AllStaffReports_{cycle_code}.zip"
+    import activity_log
+    activity_log.note(detail=f"{download_name} — {len(results)} report(s), HOD/leader bulk download",
+                      cycle_code=cycle_code, target_type="cycle")
+    return send_file(io.BytesIO(data), mimetype="application/zip",
+                     as_attachment=True, download_name=download_name)
+
+
+# ----------------------------------------------------------------------------
 # _load_atr(cycle_code, atr_id) -> (cycle_row, cycle_conn, atr_row) | (None,...)
 # Open the named cycle and load one ATR by id. Returns an OPEN connection the
 # caller must close.
@@ -669,6 +793,7 @@ def _guard_leader_on_atr(leader, master, atr_row):
 # endorse/return controls IF this leader may act on it right now (legal_actions).
 # ----------------------------------------------------------------------------
 @atr_bp.route("/atr/review/<cycle_code>/<int:atr_id>")
+@atr_feature_required_leader
 @leader_required
 def atr_review(cycle_code, atr_id):
     leader = _current_leader()
@@ -727,6 +852,7 @@ def atr_review(cycle_code, atr_id):
 # first via _guard_leader_on_atr.
 # ----------------------------------------------------------------------------
 @atr_bp.route("/atr/review/<cycle_code>/<int:atr_id>/<action>", methods=["POST"])
+@atr_feature_required_leader
 @leader_required
 def atr_act(cycle_code, atr_id, action):
     action = action.upper()
@@ -935,6 +1061,7 @@ def escalate_past_self(master, cy, cycle_row, offering, atr_id):
 # endorsement closes the last ATR, the cycle flips to RECORDED.
 # ----------------------------------------------------------------------------
 @atr_bp.route("/atr/endorse-all/<cycle_code>", methods=["POST"])
+@atr_feature_required_leader
 @leader_required
 def atr_endorse_all(cycle_code):
     leader = _current_leader()
@@ -1024,6 +1151,7 @@ def atr_endorse_all(cycle_code):
 # apply_transition (which rejects REMIND by design). RBAC-guarded.
 # ----------------------------------------------------------------------------
 @atr_bp.route("/atr/remind/<cycle_code>/<int:offering_id>", methods=["POST"])
+@atr_feature_required_leader
 @leader_required
 def atr_remind(cycle_code, offering_id):
     leader = _current_leader()

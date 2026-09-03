@@ -537,6 +537,59 @@ def build_batch_excel_zip(results, zip_path):
     return zip_path
 
 
+def _safe_folder(name):
+    """Turn a staff display name into a safe ZIP folder name. We keep letters,
+    digits, spaces, dot, dash and underscore (so "Dr. Priya R" stays readable) and
+    replace anything else — path separators above all — with a dash, so a stray
+    "/" in a name can never escape the archive folder."""
+    name = (name or "Unknown Faculty").strip()
+    keep = "".join(ch if (ch.isalnum() or ch in " ._-") else "-" for ch in name)
+    keep = keep.strip(" .") or "Unknown Faculty"   # never an empty/blank folder
+    return keep
+
+
+def build_staff_foldered_pdf_zip(results, zip_path):
+    """Download-all-reports ZIP, arranged by STAFF (Dean's ask, Sept 2026).
+
+    Layout inside the .zip:
+        <Staff Name>/<report>.pdf        # one folder per teacher
+        <Staff Name>/<another report>.pdf
+        <Other Staff>/<report>.pdf
+
+    `results` is the list of scored-offering dicts (each already pooled to its
+    delivery by the caller). We group them by the offering's faculty display name,
+    render each report to an in-memory PDF, and write it under that teacher's
+    folder. Filenames come from safe_filename() (which includes the offering id),
+    so two courses by the same teacher never collide; as a belt-and-suspenders we
+    still de-duplicate identical names within a folder.
+
+    This reuses the SAME single-report builder (build_pdf_report) the on-screen
+    "PDF" button uses, so a course's file here is byte-for-byte the report a HOD
+    would download individually — the ZIP is purely a convenience wrapper.
+    """
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        used_per_folder = {}                       # folder -> set(filenames used)
+        for res in results:
+            offering = res["offering"]
+            folder = _safe_folder(offering["faculty"] if "faculty" in offering.keys()
+                                  else None)
+            fname = safe_filename(res, "pdf")
+            # Guarantee uniqueness within the teacher's folder.
+            seen = used_per_folder.setdefault(folder, set())
+            base, ext = (fname.rsplit(".", 1) + ["pdf"])[:2]
+            candidate, n = fname, 2
+            while candidate in seen:
+                candidate = f"{base}-{n}.{ext}"
+                n += 1
+            seen.add(candidate)
+
+            buf = io.BytesIO()
+            build_pdf_report(res, buf)
+            # posixpath-style "/" is the correct ZIP separator on every OS.
+            zf.writestr(f"{folder}/{candidate}", buf.getvalue())
+    return zip_path
+
+
 def build_batch_pdf(results, pdf_path):
     """Bulk PDF: one combined, multi-page PDF for the whole batch (spec 11).
 

@@ -37,6 +37,7 @@ import consolidation   # Aug 2026: pool an elective's per-programme offerings in
 import rbac
 import report_export
 import scoring
+import settings   # Dean's ATR master switch (master.db.app_setting)
 from config import Config
 from notifications import public_base_url, atr_file_url, faculty_email_for
 
@@ -236,18 +237,23 @@ def _faculty_body(master, cycle, cycle_row, faculty_email, oids, classified,
             # external faculty have a blank email so _faculty_body never runs for
             # them; this guard also covers the test-redirect case, where blank-email
             # teachers ARE included, so we still never mint them a dead link.)
-            if _is_external_offering(master, oid):
-                atr_workflow.ensure_hod_filed_atr(cycle, oid, cycle_row["code"])
-                lines.append("      → EXTERNAL faculty: HOD will file the ATR note.")
-            else:
-                # Normal path: ensure the EXPECTED ATR row exists (shows on the HOD
-                # dashboard immediately) and mint a one-time File-ATR link, placed
-                # right under this course.
-                atr_workflow.ensure_expected_atr(cycle, oid, cycle_row["code"])
-                jti, _exp = faculty_tokens.issue(cycle, oid, faculty_email,
-                                                 purpose=faculty_tokens.PURPOSE_ATR_FILE)
-                lines.append("      → ACTION REQUIRED — file your ATR: %s"
-                             % atr_file_url(base, jti))
+            # ATR MASTER SWITCH (Sept 2026): only create ATR rows / File-ATR
+            # links while ATR mode is ON. When OFF, a POOR course still appears in
+            # the faculty email with its band, but no ATR is filed and no ATR link
+            # is minted — matching the Dean's "reports only, no ATR this cycle".
+            if settings.atr_enabled():
+                if _is_external_offering(master, oid):
+                    atr_workflow.ensure_hod_filed_atr(cycle, oid, cycle_row["code"])
+                    lines.append("      → EXTERNAL faculty: HOD will file the ATR note.")
+                else:
+                    # Normal path: ensure the EXPECTED ATR row exists (shows on the
+                    # HOD dashboard immediately) and mint a one-time File-ATR link,
+                    # placed right under this course.
+                    atr_workflow.ensure_expected_atr(cycle, oid, cycle_row["code"])
+                    jti, _exp = faculty_tokens.issue(cycle, oid, faculty_email,
+                                                     purpose=faculty_tokens.PURPOSE_ATR_FILE)
+                    lines.append("      → ACTION REQUIRED — file your ATR: %s"
+                                 % atr_file_url(base, jti))
     lines += ["", "Your feedback report for all your courses is attached as a single PDF."]
     if any_poor:
         lines.append("Course(s) marked [POOR] require an Action-Taken-Report (ATR) "
@@ -357,10 +363,13 @@ def distribute_cycle(master, cycle, cycle_row, base_url=None, roles=None,
     # the EXT HOD's queue (PENDING_HOD). This guarantees the External department's
     # poor courses always reach Dr Arul Chezhian for his note → Vice Dean, whether
     # or not any email goes out. Idempotent, so re-running distribution is safe.
-    for oid in classified:
-        if (classified[oid]["band"] == classification.BAND_POOR
-                and _is_external_offering(master, oid)):
-            atr_workflow.ensure_hod_filed_atr(cycle, oid, cycle_code)
+    # ATR MASTER SWITCH (Sept 2026): skip this External-POOR ATR sweep entirely
+    # while ATR mode is OFF, so no ATR rows are created this cycle.
+    if settings.atr_enabled():
+        for oid in classified:
+            if (classified[oid]["band"] == classification.BAND_POOR
+                    and _is_external_offering(master, oid)):
+                atr_workflow.ensure_hod_filed_atr(cycle, oid, cycle_code)
     cycle.commit()
 
     # ---- 1. FACULTY fan-out (one email each, ONE combined PDF, inline ATR) ----
