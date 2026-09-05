@@ -43,8 +43,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
-                                TableStyle, KeepTogether, Flowable)
-from xml.sax.saxutils import escape as _xml_escape
+                                TableStyle, KeepTogether)
 
 from config import Config
 
@@ -214,17 +213,6 @@ def build_view_model(result):
     }
 
 
-def _cmt_markup(text):
-    """Make a verbatim student comment safe to drop inside a ReportLab Paragraph.
-
-    A Paragraph parses its text as light XML-ish markup, so a stray '&', '<' or
-    '>' in a student's free text would raise a parse error and blank the whole
-    report. We escape those three characters and then turn real newlines into
-    <br/> line breaks so multi-line comments keep their shape on the page.
-    """
-    return _xml_escape(str(text)).replace("\r\n", "\n").replace("\n", "<br/>")
-
-
 def _fmt(v):
     """Format a /10 score for display: 2 decimals, or '—' when unanswered."""
     return "—" if v is None else f"{v:.2f}"
@@ -276,34 +264,6 @@ def _pdf_styles():
 from reportlab.pdfgen import canvas as _rl_canvas  # noqa: E402
 
 
-class _ReportStart(Flowable):
-    """A zero-height marker dropped in as the FIRST flowable of each report (and
-    of each department divider in the by-HOD combined PDF).
-
-    It draws nothing and takes no space, but at layout time it records — on the
-    shared NumberedCanvas — the page number on which this unit begins. Those
-    recorded boundaries are what NumberedCanvas.save() uses to pad every unit to
-    an EVEN number of pages, so that when many reports are printed back-to-back on
-    a duplex printer, each teacher's report starts on the FRONT of a fresh sheet
-    and never on the back of the previous teacher's last page. Fits into the whole
-    pipeline as the tiny hook that turns "one long story of many reports" into
-    "many reports that each own a whole number of sheets".
-    """
-    width = 0
-    height = 0
-
-    def wrap(self, availWidth, availHeight):
-        return (0, 0)              # occupies no space, forces no break of its own
-
-    def draw(self):
-        canv = self.canv
-        if not hasattr(canv, "_report_starts"):
-            canv._report_starts = []
-        # canv._pageNumber is the 1-based page currently being laid out, i.e. the
-        # first page of the report this marker introduces.
-        canv._report_starts.append(canv._pageNumber)
-
-
 class NumberedCanvas(_rl_canvas.Canvas):
     footer_left = ""          # set per-build: "faculty · course_code"
     _watermark = None         # set per-build: diagonal text, e.g. "TEST DATA"
@@ -311,9 +271,6 @@ class NumberedCanvas(_rl_canvas.Canvas):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._saved_page_states = []
-        # Filled by _ReportStart.draw(): the 1-based page on which each report /
-        # divider unit begins. Used by save() for even-page (duplex) padding.
-        self._report_starts = []
 
     def showPage(self):
         # Buffer this page instead of emitting it, so we can revisit at save().
@@ -321,50 +278,16 @@ class NumberedCanvas(_rl_canvas.Canvas):
         self._startPage()
 
     def save(self):
-        # Every buffered page is a real content page. The total is now known, so
-        # we replay each one stamping the true "Page X of Y" footer.
-        #
-        # DUPLEX PADDING (restored Sept 2026, smarter than the old blanket pad):
-        # each report/divider was marked at its first page by a _ReportStart
-        # flowable, so self._report_starts holds the page each unit begins on. A
-        # unit that spans an ODD number of pages gets ONE blank "intentionally
-        # left blank" page appended, making every unit even. On a double-sided
-        # printer that guarantees the next teacher's report starts on the front of
-        # a new sheet. If no markers were placed (an unexpected caller), nothing
-        # is padded and the output is byte-for-byte the old behaviour.
+        # Every buffered page is real content (v3.2: no blank padding is added).
+        # The total is now known, so replay each page stamping the real "X of Y".
         total = len(self._saved_page_states)
-        starts = sorted(set(getattr(self, "_report_starts", []) or []))
-        pad_after = set()          # 1-based content page numbers to pad AFTER
-        for i, s in enumerate(starts):
-            end = (starts[i + 1] - 1) if i + 1 < len(starts) else total
-            if (end - s + 1) % 2 == 1:          # odd-length unit -> pad to even
-                pad_after.add(end)
-        for idx, state in enumerate(self._saved_page_states):
+        for state in self._saved_page_states:
             self.__dict__.update(state)
             if self._watermark:
                 self._draw_watermark()
             self._draw_footer(total)
-            super().showPage()                  # emit this real content page
-            if (idx + 1) in pad_after:
-                # reportlab has just started a fresh blank page; caption it and
-                # emit it as the duplex separator, then carry on. The pad page
-                # carries no footer and no page number — it is a separator, not
-                # content, so "Page X of Y" keeps counting real pages only.
-                self._draw_pad_caption()
-                super().showPage()
+            super().showPage()
         super().save()
-
-    def _draw_pad_caption(self):
-        """A faint centred note on a blank duplex-pad page, so a reader knows the
-        blank sheet is intentional (for correct double-sided printing) and not a
-        printer fault."""
-        self.saveState()
-        self.setFont("Helvetica-Oblique", 9)
-        self.setFillColor(colors.HexColor("#B8C2CC"))
-        self.drawCentredString(A4[0] / 2.0, A4[1] / 2.0,
-                               "This page is intentionally left blank "
-                               "(for correct double-sided printing).")
-        self.restoreState()
 
     def _draw_watermark(self):
         """Large, faint, diagonal watermark across the page (spec §9.1 test mode)."""
@@ -549,11 +472,6 @@ def _append_pdf_story(result, story, ss):
     """
     from reportlab.platypus import PageBreak, Image as RLImage  # local imports
     vm = build_view_model(result)
-    # Mark the first page of THIS report so NumberedCanvas.save() can pad the
-    # report to an even page count for correct double-sided printing (see the
-    # _ReportStart / NumberedCanvas classes above). Must be the very first
-    # flowable so it lands on the report's opening page.
-    story.append(_ReportStart())
     # TITLE: the college banner image (as seen on all our documents), then just
     # "Course Feedback Report" — no version number, no "SRET" text. The banner
     # lives at app/static/banner.png; if it is somehow missing we fall back to a
@@ -675,44 +593,8 @@ def _append_pdf_story(result, story, ss):
         block.append(tbl)
         block.append(Spacer(1, 10))
         story.append(KeepTogether(block))
-
-    # ------------------------------------------------------------------
-    # CLOSING SECTION — OPEN-ENDED STUDENT COMMENTS  (restored Sept 2026)
-    # ------------------------------------------------------------------
-    # The student free-text comment box was re-enabled this cycle, and the Dean
-    # asked that whatever students write be shown to the HOD verbatim. The scoring
-    # stack collects these into result["open_comments"] WITHOUT scoring them (a
-    # free-text question carries no /10 weight), build_view_model passes them on
-    # as vm["open_comments"], and THIS is where they finally reach paper — always
-    # as the LAST section of every report, so the qualitative feedback always sits
-    # in the same place, right after the numeric section tables.
-    #
-    # This block is deliberately allowed to FLOW across page boundaries: a popular
-    # course can collect many comments, and truncating them would throw feedback
-    # away. Any overflow onto an extra page is then absorbed by the per-report
-    # even-page padding in NumberedCanvas.save(), so the NEXT teacher's report
-    # still begins on the front of a fresh sheet when the batch is printed duplex.
-    comments = [c for c in (vm.get("open_comments") or []) if str(c).strip()]
-    story.append(Spacer(1, 6))
-    _cmt_title = Paragraph("Open-Ended Student Comments", ss["SecTitle"])
-    if comments:
-        # Number the comments so a HOD can cite "comment 3" in an ATR note, and
-        # run each through _cmt_markup() so a stray & / < / > in a student's words
-        # cannot break the report. Keep the heading glued to at least the first
-        # comment so it is never stranded alone at the foot of a page.
-        _first = Paragraph("1. " + _cmt_markup(comments[0]), ss["Cmt"])
-        story.append(KeepTogether([_cmt_title, Spacer(1, 4), _first]))
-        for _i, _c in enumerate(comments[1:], start=2):
-            story.append(Paragraph("%d. %s" % (_i, _cmt_markup(_c)), ss["Cmt"]))
-            story.append(Spacer(1, 2))
-    else:
-        # Always show the section (even with nothing in it) so a reader can tell
-        # "no comments were left" apart from "the comments were dropped".
-        story.append(KeepTogether([
-            _cmt_title, Spacer(1, 4),
-            Paragraph("<i>No written comments were submitted for this course.</i>",
-                      ss["Cmt"]),
-        ]))
+    # (v3.2) The open-ended comments block and the department-code legend that
+    # used to close each report were removed as part of the report slim-down.
 
 
 # ============================================================================
@@ -780,10 +662,6 @@ def build_grouped_combined_pdf(groups, pdf_path):
         first_group = False
         # --- The department divider page: a large centred department label and a
         #     one-line count, then a page break so the first report starts clean.
-        #     Mark it as an odd-start unit too (via _ReportStart), so the divider
-        #     — and therefore the whole department — also opens on the front of a
-        #     fresh duplex sheet rather than on the back of the prior department.
-        story.append(_ReportStart())
         story.append(Spacer(1, 70))
         story.append(Paragraph("<b>%s</b>" % (grp.get("label") or "Department"),
                                ss["Title"]))
