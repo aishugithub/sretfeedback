@@ -152,16 +152,6 @@ def reports_home():
                 o["dept_code"] = ", ".join(d["dept_codes"])
             items.append({"offering": o, "n_responses": d["n_responses"]})
 
-    # (Sept 2026) Order the list BY DEPARTMENT (E01 -> E81) so a reader always
-    # finds a programme's reports together, instead of the collection/response
-    # order. The "Dept" column is the programme code; an elective shows a joined
-    # label, so we sort on its FIRST code. dept_sort_key puts EXTERNAL/blank last.
-    items.sort(key=lambda it: (
-        hod_bundles.dept_sort_key((it["offering"]["dept_code"] or "").split(",")[0]),
-        it["offering"]["year_of_study"] or 0,
-        it["offering"]["course_code"] or "",
-    ))
-
     master.close()
     # Programme-code + Year filters now show the FULL, stable lists — every degree
     # programme (E01…E81 incl. E04/E52/E63) and all four years — NOT just the

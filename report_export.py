@@ -1,5 +1,4 @@
 # ============================================================================
-# report_export.py  —  Render a scored offering as Excel + print-ready PDF
 #                      (spec Section 11 — the "Feedback Report V2.0" layout)
 # ============================================================================
 # WHERE THIS FITS IN THE WHOLE APPLICATION
@@ -8,11 +7,9 @@
 # numbers into the two documents the college actually hands out per course /
 # faculty (spec Section 11):
 #
-#     build_excel_report(result, path)  -> an .xlsx matching Feedback Report V2.0
 #     build_pdf_report(result, path)    -> a print-ready .pdf of the same
 #
 # Both consume the SAME `result` dict produced by scoring.score_offering(), so
-# the Excel and the PDF can never disagree — they are two renderings of one
 # computation. A small shared helper, `build_view_model(result)`, arranges the
 # raw scores into the exact blocks the report shows, in order:
 #     1. Header/identity block   (AY · Year/Term · Course · Programme · Faculty)
@@ -29,9 +26,7 @@
 #
 # Bulk generation (spec Section 11 "bulk for a whole batch") is provided by
 # build_batch_* helpers that loop these per-offering builders and package the
-# output (a .zip of Excel files, or one multi-page combined PDF).
 #
-# Dependencies: openpyxl (already used for the importer) for Excel; reportlab
 # (pure Python, pip-installable, no system libraries) for PDF — both run happily
 # on the professor's laptop with no extra OS packages (spec Section 8/13).
 # ----------------------------------------------------------------------------
@@ -40,10 +35,6 @@ import io
 import os
 import zipfile
 
-# openpyxl — Excel workbook building. (v3.2: native bar charts removed with the
-# report slim-down, so openpyxl.chart is no longer imported.)
-from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 # reportlab — PDF document building. (v3.2: the per-section bar chart was removed,
 # so the reportlab.graphics chart/shape imports are no longer needed.)
@@ -83,7 +74,6 @@ DEPT_LEGEND = [
 # SECTION 2 — THE SHARED VIEW MODEL
 # ============================================================================
 # Arrange one scored offering's `result` into the ordered blocks both renderers
-# draw. Keeping this in one place means the Excel and PDF are guaranteed to show
 # the same identity line, the same section order, and the same tables.
 # ----------------------------------------------------------------------------
 
@@ -233,147 +223,8 @@ def _fmt(v):
 # ============================================================================
 
 # Reusable styling constants (kept here so a restyle is one-line-per-look).
-_HDR_FILL = PatternFill("solid", fgColor="0B3D68")   # deep blue like the app
-_HDR_FONT = Font(bold=True, color="FFFFFF", size=11)
-_SUB_FILL = PatternFill("solid", fgColor="EEF1F4")
-_BOLD = Font(bold=True)
-_BIG = Font(bold=True, size=20, color="0B3D68")
-_THIN = Side(style="thin", color="C9CED3")
-_BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 
 
-def build_excel_report(result, path):
-    """Write one offering's report to an .xlsx file at `path`.
-
-    Layout order matches Section 11: header block, dept legend, recorded count,
-    overall score, section-score table, then per-section count tables each with
-    a bar chart, and finally the verbatim open comments.
-    """
-    vm = build_view_model(result)
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Report"
-    ws.sheet_view.showGridLines = False
-    # Sensible column widths for a printable A4-ish sheet.
-    widths = {"A": 46, "B": 14, "C": 14, "D": 14, "E": 14, "F": 14, "G": 14}
-    for col, w in widths.items():
-        ws.column_dimensions[col].width = w
-
-    r = 1  # running row cursor
-
-    # ---- Banner image + title ----------------------------------------------
-    # The college banner (app/static/banner.png) at the very top, then just
-    # "Course Feedback Report" — no version, no "SRET" text. The image floats
-    # over rows 1-7 (whose height we reserve); if it can't be added we simply
-    # start the title at row 1 so the sheet is never broken.
-    banner_path = os.path.join(Config.BASE_DIR, "static", "banner.png")
-    if os.path.exists(banner_path):
-        try:
-            from openpyxl.drawing.image import Image as XLImage
-            img = XLImage(banner_path)
-            img.width, img.height = 720, 144          # 5:1 aspect, ~content width
-            ws.add_image(img, "A1")
-            for rr in range(1, 8):                    # reserve space under the image
-                ws.row_dimensions[rr].height = 21
-            r = 9
-        except Exception:
-            r = 1
-    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
-    cell = ws.cell(r, 1, "Course Feedback Report")
-    cell.fill = _HDR_FILL; cell.font = _HDR_FONT
-    cell.alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[r].height = 24
-    r += 2
-
-    # ---- Header identity block (label : value pairs) ------------------------
-    h = vm["header"]
-    ident = [
-        ("ACADEMIC YEAR", h["academic_year"]),
-        ("YEAR / TERM", h["year_term"]),
-    ]
-    if h["section"]:                       # only for split (multi-section) courses
-        ident.append(("SECTION / BATCH", h["section"]))
-    ident += [
-        ("COURSE CODE", h["course_code"]),
-        ("COURSE NAME", h["course_name"]),
-        ("PROGRAM CODE", h["dept_code"]),
-        ("PROGRAMME", h["programme"]),
-        ("FACULTY NAME", h["faculty"]),
-        ("CATEGORY", f"{h['category']} — {h['category_name']}"),
-    ]
-    for label, value in ident:
-        ws.cell(r, 1, label).font = _BOLD
-        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=7)
-        ws.cell(r, 2, value)
-        r += 1
-    r += 1
-
-    # ---- No. of students + Overall score box --------------------------------
-    ws.cell(r, 1, "No. of Students Feedback Recorded:").font = _BOLD
-    ws.cell(r, 2, vm["n_recorded"])
-    r += 1
-    ws.cell(r, 1, "OVERALL SCORE (out of 10):").font = _BOLD
-    oc = ws.cell(r, 2, vm["overall_2dp"] if vm["overall_2dp"] is not None else "—")
-    oc.font = _BIG
-    ws.row_dimensions[r].height = 28
-    r += 2
-
-    # ---- Section-score summary table ----------------------------------------
-    ws.cell(r, 1, "Section").font = _HDR_FONT
-    ws.cell(r, 1).fill = _HDR_FILL
-    ws.cell(r, 2, "Score /10").font = _HDR_FONT
-    ws.cell(r, 2).fill = _HDR_FILL
-    r += 1
-    for srow in vm["section_rows"]:
-        ws.cell(r, 1, srow["title"]).border = _BORDER
-        c = ws.cell(r, 2, srow["score_2dp"] if srow["score_2dp"] is not None else "—")
-        c.border = _BORDER
-        r += 1
-    r += 1
-
-    # ---- Per-section count tables -------------------------------------------
-    # For each section we print a small table: rows = questions, columns = the
-    # option labels, cells = counts, plus each question's average /10. (v3.2: the
-    # clustered bar chart that used to follow each table was removed.)
-    for sec in vm["detail_sections"]:
-        if not sec["questions"]:
-            continue
-        ws.cell(r, 1, sec["title"]).font = _BIG
-        ws.cell(r, 1).font = Font(bold=True, size=13, color="0B3D68")
-        r += 1
-
-        # Column headers = the union of option labels for this section's first
-        # question (all questions in a section share one scale, so labels match).
-        labels = [lbl for (lbl, _cnt) in sec["questions"][0]["counts"]]
-        header_row = r
-        ws.cell(r, 1, "Question").font = _BOLD
-        ws.cell(r, 1).fill = _SUB_FILL
-        for j, lbl in enumerate(labels, start=2):
-            c = ws.cell(r, j, lbl)
-            c.font = _BOLD; c.fill = _SUB_FILL
-            c.alignment = Alignment(wrap_text=True, vertical="center")
-        r += 1
-        data_start = r
-        for qb in sec["questions"]:
-            ws.cell(r, 1, qb["text"]).alignment = Alignment(wrap_text=True)
-            ws.cell(r, 1).border = _BORDER
-            count_map = dict(qb["counts"])
-            for j, lbl in enumerate(labels, start=2):
-                c = ws.cell(r, j, count_map.get(lbl, 0))
-                c.border = _BORDER
-                c.alignment = Alignment(horizontal="center")
-            r += 1
-        data_end = r - 1
-        r += 1   # a blank row before the next section's table
-
-    # (v3.2) The department-code legend and the open-ended comments block that
-    # used to close the sheet were removed here as part of the report slim-down.
-
-    wb.save(path)
-    return path
-
-
-# ============================================================================
 # SECTION 4 — PDF RENDERER (print-ready, matches the same layout)
 # ============================================================================
 
@@ -521,20 +372,6 @@ def safe_filename(result, ext):
     raw = "_".join(str(p) for p in parts)
     keep = "".join(ch if (ch.isalnum() or ch in "._-") else "-" for ch in raw)
     return f"{keep}.{ext}"
-
-
-def build_batch_excel_zip(results, zip_path):
-    """Bulk Excel: write one .xlsx per offering into a single .zip (spec 11).
-
-    `results` is a list of scored-offering dicts. We render each to an in-memory
-    workbook and add it to the archive, so a whole batch downloads as one file.
-    """
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for res in results:
-            buf = io.BytesIO()
-            build_excel_report(res, buf)
-            zf.writestr(safe_filename(res, "xlsx"), buf.getvalue())
-    return zip_path
 
 
 def _safe_folder(name):
@@ -758,3 +595,126 @@ def _append_pdf_story(result, story, ss):
         story.append(KeepTogether(block))
     # (v3.2) The open-ended comments block and the department-code legend that
     # used to close each report were removed as part of the report slim-down.
+
+
+# ============================================================================
+# SECTION 5 — HOD-GROUPED BULK OUTPUTS  (Sept 2026, the Dean's ask)
+# ----------------------------------------------------------------------------
+# The college wants every bulk report download organised BY THE HOD who owns the
+# staff — i.e. grouped by the faculty's home department (rbac.effective_dept),
+# because that is exactly the person each teacher reports to. Two shapes are
+# needed, both fed by the SAME pre-scored, pre-grouped `groups` structure that
+# hod_bundles.build_department_groups() produces, so admin and leader downloads
+# can never diverge:
+#
+#   groups = [
+#     { "label":  "E01 — CSE-AIML",        # dept code + short name (folder/divider)
+#       "results": [ <scored-offering dict>, ... ] },  # every delivery in that dept
+#     { "label":  "E05 — CSE-Cyber", "results": [ ... ] },
+#     ...
+#   ]                                       # already ordered by dept code
+#
+#   * build_grouped_combined_pdf  -> ONE PDF, a divider page per department then
+#     that department's course reports. For a single-department HOD this is just
+#     their one section; for the Vice-Dean/Dean it is their whole scope with a
+#     clear divider starting each department (the "whole scope, divider per dept"
+#     choice, Sept 2026).
+#   * build_hod_staff_foldered_pdf_zip -> a .zip nested TWO levels deep:
+#         <Dept — Name>/<Staff Name>/<course report>.pdf
+#     i.e. one folder per HOD's department, and inside it one sub-folder per staff
+#     member with all their course PDFs. (A single-department caller can instead
+#     use build_staff_foldered_pdf_zip above for a flat <Staff>/<report>.pdf zip.)
+#
+# Both reuse the frozen single-report builder build_pdf_report, so a file here is
+# byte-for-byte the individually-downloaded report — no new scoring, no Excel.
+# ============================================================================
+
+def build_grouped_combined_pdf(groups, pdf_path):
+    """One combined PDF, with a divider page introducing each department.
+
+    `groups` is the ordered list described in the SECTION 5 header. Empty groups
+    (a department with no scorable responses) are skipped. Each report still
+    starts on a fresh page; a department divider page precedes its first report.
+    """
+    from reportlab.platypus import PageBreak
+    ss = _pdf_styles()
+    doc = SimpleDocTemplate(pdf_path, pagesize=A4,
+                            topMargin=14 * mm, bottomMargin=14 * mm,
+                            leftMargin=15 * mm, rightMargin=15 * mm,
+                            title="SRET Feedback Reports (by HOD)")
+    story = []
+    watermark = None
+    first_group = True
+    for grp in groups:
+        results = grp.get("results") or []
+        if not results:
+            continue
+        # Inherit the TEST-DATA watermark from the first result that carries one,
+        # so a test-cycle batch is stamped exactly like the single-report PDF.
+        if watermark is None:
+            for r in results:
+                if hasattr(r, "get") and r.get("watermark"):
+                    watermark = r.get("watermark")
+                    break
+        # A page break BETWEEN departments (not before the very first one).
+        if not first_group:
+            story.append(PageBreak())
+        first_group = False
+        # --- The department divider page: a large centred department label and a
+        #     one-line count, then a page break so the first report starts clean.
+        story.append(Spacer(1, 70))
+        story.append(Paragraph("<b>%s</b>" % (grp.get("label") or "Department"),
+                               ss["Title"]))
+        story.append(Spacer(1, 8))
+        story.append(Paragraph("%d course report(s) in this department"
+                               % len(results), ss["Ident"]))
+        story.append(PageBreak())
+        # --- The department's reports, each on its own page boundary.
+        for res in results:
+            _append_pdf_story(res, story, ss)
+            story.append(PageBreak())
+    # Drop any trailing page break(s) so the document has no blank final page.
+    while story and type(story[-1]).__name__ == "PageBreak":
+        story.pop()
+    if not story:                       # nothing at all to render → a stub page
+        story.append(Paragraph("No reports to display.", ss["Ident"]))
+
+    class _C(NumberedCanvas):
+        pass
+    _C.footer_left = "SRET Feedback (by HOD)"
+    _C._watermark = watermark
+    doc.build(story, canvasmaker=_C)
+    return pdf_path
+
+
+def build_hod_staff_foldered_pdf_zip(groups, zip_path):
+    """A .zip nested <Dept — Name>/<Staff Name>/<report>.pdf (Sept 2026).
+
+    Used for the Vice-Dean/Dean download, where each HOD's department is a top
+    folder holding one sub-folder per staff member. `groups` is the SECTION 5
+    structure. Names are sanitised by _safe_folder (so a stray path separator can
+    never escape the archive), and filenames are de-duplicated within each staff
+    sub-folder as a belt-and-suspenders (safe_filename already includes the id).
+    """
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        used_per_leaf = {}                       # (dept, staff) -> set(filenames)
+        for grp in groups:
+            dept_folder = _safe_folder(grp.get("label") or "Department")
+            for res in (grp.get("results") or []):
+                offering = res["offering"]
+                staff = _safe_folder(offering["faculty"] if "faculty" in offering.keys()
+                                     else None)
+                fname = safe_filename(res, "pdf")
+                seen = used_per_leaf.setdefault((dept_folder, staff), set())
+                base, ext = (fname.rsplit(".", 1) + ["pdf"])[:2]
+                candidate, n = fname, 2
+                while candidate in seen:
+                    candidate = f"{base}-{n}.{ext}"
+                    n += 1
+                seen.add(candidate)
+
+                buf = io.BytesIO()
+                build_pdf_report(res, buf)
+                # posixpath "/" is the correct ZIP separator on every OS.
+                zf.writestr(f"{dept_folder}/{staff}/{candidate}", buf.getvalue())
+    return zip_path

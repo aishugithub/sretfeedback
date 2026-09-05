@@ -88,13 +88,15 @@
   {% if all_offerings %}
     <h3 style="margin-top:26px">All staff reports — {{ all_offerings|length }} course(s) in your scope</h3>
     <p class="muted">Every course taught by your department's faculty this cycle,
-    regardless of band. Download any report as Excel or PDF.</p>
+    regardless of band. Download any report as PDF, or bundle them all below.</p>
     {# DOWNLOAD-ALL (Dean, Sept 2026): one zip of every in-scope report, arranged
        in a folder per staff member (atr.atr_reports_zip). Stays available even
        when ATR mode is off — it is a report surface, not an ATR action. #}
-    <p style="margin:0 0 12px">
+    <p style="margin:0 0 12px; display:flex; gap:10px; flex-wrap:wrap">
       <a class="btn" href="{{ url_for('atr.atr_reports_zip', cycle_code=selected.code) }}">
-        &#8681; Download all reports (ZIP &mdash; one folder per staff member)</a>
+        &#8681; Download all (ZIP &mdash; folder per staff{% if can_endorse_all %}, nested by department{% endif %})</a>
+      <a class="btn grey" href="{{ url_for('atr.atr_reports_pdf', cycle_code=selected.code) }}">
+        &#8681; Download all (one combined PDF{% if can_endorse_all %} &mdash; divider per department{% endif %})</a>
     </p>
     <table>
       <tr><th>Programme code</th><th>Course</th><th>Faculty</th><th>Band</th>
@@ -114,8 +116,7 @@
           <td>{{ r.n_responses if r.n_responses is not none else '—' }}</td>
           <td>
             {% if r.band %}
-              <a class="btn small" href="{{ url_for('atr.atr_report', cycle_code=selected.code, offering_id=r.offering.id, fmt='pdf') }}">PDF</a>
-              <a class="btn small grey" href="{{ url_for('atr.atr_report', cycle_code=selected.code, offering_id=r.offering.id, fmt='xlsx') }}">Excel</a>
+              <a class="btn small grey" href="{{ url_for('atr.atr_report', cycle_code=selected.code, offering_id=r.offering.id, fmt='pdf') }}">PDF</a>
             {% else %}<span class="muted">no responses</span>{% endif %}
           </td>
         </tr>

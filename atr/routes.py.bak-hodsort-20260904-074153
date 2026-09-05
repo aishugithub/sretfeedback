@@ -44,7 +44,6 @@ import consolidation   # Aug 2026: group an elective's per-programme offerings i
 import auth_leaders
 import notifications
 import rbac
-import hod_bundles   # Sept 2026: shared dept_sort_key so listings sort E01->E81
 import settings   # Dean's ATR master switch (master.db.app_setting)
 import datetime as _dt
 
@@ -570,24 +569,8 @@ def atr_dashboard():
     rows.sort(key=lambda r: (
         0 if r["mine"] else 1,                              # my action items first
         _state_rank.get(r["atr"]["state"], 9),              # then by workflow state
-        hod_bundles.dept_sort_key(r["offering"].get("eff_dept")),  # then by HOD dept
-        (r["offering"].get("dept_code") or "").split(",")[0],      #   then programme code
         (r["offering"]["course_code"] or ""),               # then by course
     ))
-
-    # (Sept 2026) Order the REPORT listings BY HOD DEPARTMENT (E01 -> E81) so a
-    # leader always finds a department's staff together. eff_dept is the faculty's
-    # home department (who the HOD owns); dept_sort_key sends EXTERNAL/unset last.
-    all_offerings.sort(key=lambda r: (
-        hod_bundles.dept_sort_key(r["offering"].get("eff_dept")),
-        (r["offering"].get("dept_code") or "").split(",")[0],
-        r["offering"].get("year_of_study") or 0,
-        (r["offering"].get("course_code") or ""),
-    ))
-    _ext_key = lambda b: ((b.get("dept_code") or "").split(",")[0],
-                          (b.get("course_code") or ""))
-    external_rows.sort(key=_ext_key)
-    unassigned_rows.sort(key=_ext_key)
 
     # How many ATRs are in THIS leader's action queue right now (owner == role)?
     # Drives the "Endorse all (N)" button, shown only to whole-slate endorsers.

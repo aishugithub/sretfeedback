@@ -3,9 +3,14 @@
    --------------------------------------------------------------------------
    WHERE THIS FITS: the admin front door to the Night-3 scoring + export stack.
    The professor picks a cycle, sees which offerings have collected responses,
-   and downloads either ONE offering (Excel / PDF) or a whole BATCH (a .zip of
-   Excel files, or one combined PDF). Every number shown/exported is computed by
-   scoring.py, which is verified to reproduce the approved workbooks exactly.
+   and downloads reports. Reports are PDF-ONLY (Sept 2026: Excel was removed so a
+   score can never be edited after the fact). Two bulk axes are offered:
+     * BY PROGRAMME CODE — one combined PDF for a programme/year batch (unchanged).
+     * BY HOD            — grouped by the HOD who owns each teacher (the faculty's
+                           home department): one combined PDF with a divider page
+                           per department, OR a foldered ZIP (per staff, nested by
+                           department when more than one department is included).
+   Every number is computed by scoring.py, verified against the approved workbooks.
    ========================================================================== #}
 {% extends "base.html" %}
 {% block title %}Reports · SRET Feedback Admin{% endblock %}
@@ -35,13 +40,13 @@
        Reports appear here once students start submitting.</p>
   {% else %}
 
-    {# ---- Bulk (per-batch) generation ---------------------------------- #}
+    {# ---- Bulk BY PROGRAMME CODE (unchanged axis) ---------------------- #}
     <div class="card">
-      <h3 style="margin-top:0">Bulk generate for a batch</h3>
+      <h3 style="margin-top:0">Bulk — by programme code</h3>
       <p class="muted">Optionally narrow to a programme code / year, then
-        download every matching offering's report in one file.</p>
+        download every matching offering's report as one combined PDF.</p>
       <form method="get" id="bulkform"
-            action="{{ url_for('admin.report_bulk', cycle_id=selected.id, fmt='zip') }}"
+            action="{{ url_for('admin.report_bulk', cycle_id=selected.id, fmt='pdf') }}"
             style="display:flex; gap:10px; align-items:end; flex-wrap:wrap">
         <div class="field" style="margin:0"><label>Programme code</label>
           <select name="dept" style="min-width:230px"><option value="">(all)</option>
@@ -51,12 +56,33 @@
           <select name="year"><option value="">(all)</option>
             {% for y in years %}<option value="{{ y }}">Year {{ y }}</option>{% endfor %}
           </select></div>
-        <button class="btn" type="submit"
-                formaction="{{ url_for('admin.report_bulk', cycle_id=selected.id, fmt='zip') }}">
-          Download Excel (.zip)</button>
         <button class="btn grey" type="submit"
                 formaction="{{ url_for('admin.report_bulk', cycle_id=selected.id, fmt='pdf') }}">
           Download combined PDF</button>
+      </form>
+    </div>
+
+    {# ---- Bulk BY HOD (Sept 2026 axis) --------------------------------- #}
+    <div class="card">
+      <h3 style="margin-top:0">Bulk — by HOD (department)</h3>
+      <p class="muted">Groups reports by the HOD each teacher reports to (their
+        home department). Pick one department, or <b>All</b> to bundle every
+        department together — the combined PDF starts each department on its own
+        divider page, and the “All” ZIP nests <code>Dept / Staff / report.pdf</code>.</p>
+      <form method="get"
+            action="{{ url_for('admin.report_by_hod', cycle_id=selected.id, fmt='pdf') }}"
+            style="display:flex; gap:10px; align-items:end; flex-wrap:wrap">
+        <div class="field" style="margin:0"><label>HOD / Department</label>
+          <select name="dept" style="min-width:260px">
+            <option value="ALL">All departments (grouped by HOD)</option>
+            {% for d in depts %}<option value="{{ d }}">{{ d }} — {{ dept_names.get(d, '') }}</option>{% endfor %}
+          </select></div>
+        <button class="btn" type="submit"
+                formaction="{{ url_for('admin.report_by_hod', cycle_id=selected.id, fmt='pdf') }}">
+          Combined PDF (divider per dept)</button>
+        <button class="btn grey" type="submit"
+                formaction="{{ url_for('admin.report_by_hod', cycle_id=selected.id, fmt='zip') }}">
+          ZIP — one folder per staff</button>
       </form>
     </div>
 
@@ -78,7 +104,6 @@
             <td>{{ it.n_responses }}</td>
             <td style="white-space:nowrap">
               {% if o.report_key %}
-                <a class="btn small" href="{{ url_for('admin.report_one', cycle_id=selected.id, offering_id=o.id, fmt='xlsx') }}">Excel</a>
                 <a class="btn small grey" href="{{ url_for('admin.report_one', cycle_id=selected.id, offering_id=o.id, fmt='pdf') }}">PDF</a>
               {% else %}
                 <span class="muted">set a category first</span>

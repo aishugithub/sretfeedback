@@ -39,3 +39,6 @@ _claude_backup_*/
 .DS_Store
 Thumbs.db
 ~$*
+
+# Session backups (Sept 2026 HOD-reports change) — keep local, never commit
+*.bak-hodreports-*
