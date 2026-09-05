@@ -17,6 +17,7 @@ openpyxl==3.1.5       # Reads/writes .xlsx files. Used by the allocation
                       # (Night 3) to reproduce the "Feedback Report V2.0" layout.
 
 reportlab==4.5.1      # Pure-Python PDF generation (no system libraries needed,
+pypdf>=3.17          # merge per-report PDFs into the by-HOD/batch combined files (per-report page numbers + duplex padding)
                       # so it installs + runs on the laptop with just pip). Used
                       # by report_export.py (Night 3) to produce the print-ready
                       # PDF version of each "Feedback Report V2.0", including the

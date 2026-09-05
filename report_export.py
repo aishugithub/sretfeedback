@@ -385,26 +385,89 @@ class NumberedCanvas(_rl_canvas.Canvas):
         self.drawCentredString(0, 0, self._watermark)
         self.restoreState()
 
-    def _draw_footer(self, total):
-        """Thin rule + three-zone footer on a numbered content page (spec §13.1)."""
-        page_num = self._pageNumber
+    def _draw_footer(self, total, page_num=None):
+        """Two-line footer (spec §13.1, descriptive form):
+          line 1 (just above a thin rule): the identity line on the LEFT and the
+                 per-report "Page X of Y" on the RIGHT;
+          line 2 (below): the confidentiality notice, small and centred.
+        Because every report is now rendered as its OWN PDF (the by-HOD/batch
+        combined files are built by merging these), `self._pageNumber`/`total`
+        are already this one report's local page and page-count — so numbering
+        restarts at "Page 1 of N" for each teacher, never running across the
+        whole consolidated file."""
+        page_num = self._pageNumber if page_num is None else page_num
         self.saveState()
-        y = 10 * mm
+        y = 11 * mm
         self.setStrokeColor(colors.HexColor("#b8c2cc"))
         self.setLineWidth(0.5)
-        self.line(15 * mm, y + 4 * mm, A4[0] - 15 * mm, y + 4 * mm)  # thin rule above
-        self.setFont("Helvetica", 7)
-        self.setFillColor(colors.HexColor("#555555"))
-        self.drawString(15 * mm, y, self.footer_left[:80])
-        self.drawCentredString(A4[0] / 2.0, y,
+        self.line(15 * mm, y + 3.5 * mm, A4[0] - 15 * mm, y + 3.5 * mm)  # thin rule
+        left_x = 15 * mm
+        right_x = A4[0] - 15 * mm
+        # --- Page number (right), bold. Drawn first so we know its width and can
+        #     keep the identity line from ever overlapping it.
+        pnum = "Page %s of %s" % (page_num, total)
+        self.setFont("Helvetica-Bold", 7)
+        self.setFillColor(colors.HexColor("#333333"))
+        self.drawRightString(right_x, y, pnum)
+        # --- Identity line (left). Shrink the font (7 -> 5pt) to fit the space
+        #     left of the page number; if it still will not fit, trim with an
+        #     ellipsis. This guarantees the two never collide, however long a
+        #     course name or elective code-list is.
+        ident = self.footer_left or ""
+        gap = 6 * mm
+        avail = right_x - left_x - self.stringWidth(pnum, "Helvetica-Bold", 7) - gap
+        size = 7.0
+        while size > 5.0 and self.stringWidth(ident, "Helvetica", size) > avail:
+            size -= 0.5
+        if self.stringWidth(ident, "Helvetica", size) > avail:
+            while ident and self.stringWidth(ident + "\u2026", "Helvetica", size) > avail:
+                ident = ident[:-1]
+            ident = ident + "\u2026"
+        self.setFont("Helvetica", size)
+        self.setFillColor(colors.HexColor("#333333"))
+        self.drawString(left_x, y, ident)
+        # --- Line 2: confidentiality notice, smaller and fainter, centred below.
+        self.setFont("Helvetica", 6)
+        self.setFillColor(colors.HexColor("#888888"))
+        self.drawCentredString(A4[0] / 2.0, y - 4 * mm,
                                "Confidential — For faculty development purposes only")
-        self.drawRightString(A4[0] - 15 * mm, y, f"Page {page_num} of {total}")
         self.restoreState()
 
 
 def _footer_left_for(result):
+    """Descriptive footer identity line for ONE report, in the Dean's order:
+        <HOD dept> | Dr. <Faculty> | <programme code> | <course code>
+        | <Course Name> | <cycle label>
+
+    Every field is read from the report's own identity row:
+    - HOD dept  = the faculty's HOME department (the HOD the teacher reports to);
+      scoring attaches it as offering["hod_dept_code"]. Falls back to the
+      programme code if it is somehow missing.
+    - programme code = the course's own programme (offering.dept_code); for a
+      pooled elective it is the joined list of every programme in the delivery.
+    - cycle label = e.g. "CA1 - Intermediate" (offering["cycle_label"]), so a
+      printed report always says which assessment cycle it belongs to.
+    Missing fields are skipped so the line never shows a dangling separator.
+    """
     o = result["offering"]
-    return f"{_name_titled(o['faculty']) or 'Faculty'} · {o['course_code'] or ''}"
+
+    def g(key):                       # safe read from a sqlite Row OR a dict
+        try:
+            return o[key]
+        except Exception:
+            return None
+
+    hod = str(g("hod_dept_code") or g("dept_code") or "").strip()
+    faculty = _name_titled(g("faculty") or "") or "Faculty"
+    if result.get("is_consolidated") and result.get("group_dept_codes"):
+        prog = ", ".join(result["group_dept_codes"])
+    else:
+        prog = str(g("dept_code") or "").strip()
+    course_code = str(g("course_code") or "").strip()
+    course_name = str(g("course_name") or "").strip()
+    cycle = str(g("cycle_label") or "").strip()
+    fields = (hod, faculty, prog, course_code, course_name, cycle)
+    return "  |  ".join([p for p in fields if p])
 
 
 def build_pdf_report(result, path_or_buffer):
@@ -513,41 +576,100 @@ def build_staff_foldered_pdf_zip(results, zip_path):
     return zip_path
 
 
-def build_batch_pdf(results, pdf_path):
-    """Bulk PDF: one combined, multi-page PDF for the whole batch (spec 11).
+def _merge_pdfs(buffers, out_path):
+    """Concatenate several in-memory single-report PDFs into ONE file, page for
+    page, with pypdf. Each buffer is a fully-formed report — already even-paged
+    (duplex-safe) and already carrying its OWN "Page X of Y" footer — so the
+    merged file numbers every report independently and every report still opens
+    on the front of a fresh sheet. This is how the by-HOD / batch combined PDFs
+    are assembled now, instead of stitching one giant story (which numbered pages
+    across the whole file and could not pad or number each report on its own)."""
+    from pypdf import PdfReader, PdfWriter
+    writer = PdfWriter()
+    for buf in buffers:
+        buf.seek(0)
+        for page in PdfReader(buf).pages:
+            writer.add_page(page)
+    with open(out_path, "wb") as fh:
+        writer.write(fh)
+    return out_path
 
-    Each offering's report is built into its own PDF page-set in memory, then
-    the pages are concatenated with reportlab's low-level canvas import via
-    pypdf-free merging: we render every offering into ONE SimpleDocTemplate by
-    concatenating their stories with a PageBreak between them.
-    """
-    from reportlab.platypus import PageBreak
+
+def _stub_pdf(text):
+    """A one-page placeholder PDF (used when a batch/group has nothing to show)."""
+    import io
+    buf = io.BytesIO()
     ss = _pdf_styles()
-    doc = SimpleDocTemplate(pdf_path, pagesize=A4,
-                            topMargin=14 * mm, bottomMargin=14 * mm,
-                            leftMargin=15 * mm, rightMargin=15 * mm,
-                            title="SRET Feedback Reports (Batch)")
-    story = []
-    for idx, res in enumerate(results):
-        # Reuse the single-report builder's story by capturing it: simplest is to
-        # build each to a temp buffer then merge PDFs, but to avoid a PDF-merge
-        # dependency we instead re-run the layout inline here via a shared story
-        # accumulator. We call a private helper that APPENDS to `story`.
-        _append_pdf_story(res, story, ss)
-        # Each report still starts on a fresh page (PageBreak between reports), but
-        # (v3.2) no blank padding is added — reports print at their true length.
-        if idx != len(results) - 1:
-            story.append(PageBreak())
-    # Use the numbered canvas so the combined PDF carries the confidential footer
-    # and "Page X of Y" across all reports.
-    watermark = results[0].get("watermark") if results and hasattr(results[0], "get") else None
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=14 * mm, bottomMargin=14 * mm,
+                            leftMargin=15 * mm, rightMargin=15 * mm)
+    doc.build([Paragraph(text, ss["Ident"])])
+    buf.seek(0)
+    return buf
 
-    class _C(NumberedCanvas):
-        pass
-    _C.footer_left = "SRET Feedback (batch)"
-    _C._watermark = watermark
-    doc.build(story, canvasmaker=_C)
-    return pdf_path
+
+def _one_blank_page_pdf():
+    """A single completely-blank A4 page. Used to pad a department divider to an
+    even page count so the department's first report opens on a fresh sheet."""
+    import io
+    buf = io.BytesIO()
+    c = _rl_canvas.Canvas(buf, pagesize=A4)
+    c.showPage()          # emit exactly one blank page
+    c.save()
+    buf.seek(0)
+    return buf
+
+
+def _build_divider_pdf(label, count, watermark=None):
+    """One department-divider page (big centred label + a one-line count) as its
+    own 1-page PDF buffer. It carries NO footer and NO page number — it is a
+    separator, not a report. The caller pads it to even with a blank page. A
+    TEST-DATA watermark, if any, is drawn so a test batch is obvious."""
+    import io
+    ss = _pdf_styles()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=14 * mm, bottomMargin=14 * mm,
+                            leftMargin=15 * mm, rightMargin=15 * mm,
+                            title="Department divider")
+    story = [Spacer(1, 90),
+             Paragraph("<b>%s</b>" % (label or "Department"), ss["Title"]),
+             Spacer(1, 8),
+             Paragraph("%d course report(s) in this department" % count, ss["Ident"])]
+
+    def _wm(canvas, _doc):
+        if not watermark:
+            return
+        canvas.saveState()
+        canvas.setFont("Helvetica-Bold", 60)
+        canvas.setFillColor(colors.Color(0.85, 0.2, 0.2, alpha=0.16))
+        canvas.translate(A4[0] / 2.0, A4[1] / 2.0)
+        canvas.rotate(45)
+        canvas.drawCentredString(0, 0, watermark)
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=_wm, onLaterPages=_wm)
+    buf.seek(0)
+    return buf
+
+
+def build_batch_pdf(results, pdf_path):
+    """Bulk PDF: one combined multi-page PDF for the whole batch (spec 11).
+
+    Each report is rendered INDEPENDENTLY by build_pdf_report into an in-memory
+    PDF — so it is even-paged (duplex-safe), phantom-page free, and carries its
+    OWN per-report "Page X of Y" footer — and the finished report PDFs are then
+    concatenated with pypdf (see _merge_pdfs). This replaces the old shared-story
+    concatenation, which numbered pages across the whole file and could neither
+    pad nor number each report on its own.
+    """
+    import io
+    buffers = []
+    for res in results:
+        b = io.BytesIO()
+        build_pdf_report(res, b)      # even-paged + own footer/numbering
+        buffers.append(b)
+    if not buffers:
+        buffers.append(_stub_pdf("No reports to display."))
+    return _merge_pdfs(buffers, pdf_path)
 
 
 def _append_pdf_story(result, story, ss):
@@ -761,65 +883,41 @@ def _append_pdf_story(result, story, ss):
 # ============================================================================
 
 def build_grouped_combined_pdf(groups, pdf_path):
-    """One combined PDF, with a divider page introducing each department.
+    """One combined PDF, a divider page introducing each department, then that
+    department's reports.
 
-    `groups` is the ordered list described in the SECTION 5 header. Empty groups
-    (a department with no scorable responses) are skipped. Each report still
-    starts on a fresh page; a department divider page precedes its first report.
+    Each report is rendered INDEPENDENTLY by build_pdf_report (even-paged, own
+    per-report footer + "Page X of Y"); each department divider is its own 1-page
+    PDF padded to an even 2 pages with a blank sheet. The pieces are concatenated
+    with pypdf (see _merge_pdfs), so every teacher's report and every department
+    opens on the front of a fresh duplex sheet and numbers itself. Empty groups
+    (a department with no scorable responses) are skipped.
     """
-    from reportlab.platypus import PageBreak
-    ss = _pdf_styles()
-    doc = SimpleDocTemplate(pdf_path, pagesize=A4,
-                            topMargin=14 * mm, bottomMargin=14 * mm,
-                            leftMargin=15 * mm, rightMargin=15 * mm,
-                            title="SRET Feedback Reports (by HOD)")
-    story = []
-    watermark = None
-    first_group = True
+    import io
+    buffers = []
     for grp in groups:
         results = grp.get("results") or []
         if not results:
             continue
-        # Inherit the TEST-DATA watermark from the first result that carries one,
-        # so a test-cycle batch is stamped exactly like the single-report PDF.
-        if watermark is None:
-            for r in results:
-                if hasattr(r, "get") and r.get("watermark"):
-                    watermark = r.get("watermark")
-                    break
-        # A page break BETWEEN departments (not before the very first one).
-        if not first_group:
-            story.append(PageBreak())
-        first_group = False
-        # --- The department divider page: a large centred department label and a
-        #     one-line count, then a page break so the first report starts clean.
-        #     Mark it as an odd-start unit too (via _ReportStart), so the divider
-        #     — and therefore the whole department — also opens on the front of a
-        #     fresh duplex sheet rather than on the back of the prior department.
-        story.append(_ReportStart())
-        story.append(Spacer(1, 70))
-        story.append(Paragraph("<b>%s</b>" % (grp.get("label") or "Department"),
-                               ss["Title"]))
-        story.append(Spacer(1, 8))
-        story.append(Paragraph("%d course report(s) in this department"
-                               % len(results), ss["Ident"]))
-        story.append(PageBreak())
-        # --- The department's reports, each on its own page boundary.
+        # Inherit the TEST-DATA watermark from the first result that carries one.
+        watermark = None
+        for r in results:
+            if hasattr(r, "get") and r.get("watermark"):
+                watermark = r.get("watermark")
+                break
+        # Department divider (1 page) + a blank page -> even, so this department
+        # (and its first report) opens on the front of a fresh sheet.
+        buffers.append(_build_divider_pdf(grp.get("label") or "Department",
+                                          len(results), watermark))
+        buffers.append(_one_blank_page_pdf())
+        # Then the department's reports, each its own even-paged, self-numbered PDF.
         for res in results:
-            _append_pdf_story(res, story, ss)
-            story.append(PageBreak())
-    # Drop any trailing page break(s) so the document has no blank final page.
-    while story and type(story[-1]).__name__ == "PageBreak":
-        story.pop()
-    if not story:                       # nothing at all to render → a stub page
-        story.append(Paragraph("No reports to display.", ss["Ident"]))
-
-    class _C(NumberedCanvas):
-        pass
-    _C.footer_left = "SRET Feedback (by HOD)"
-    _C._watermark = watermark
-    doc.build(story, canvasmaker=_C)
-    return pdf_path
+            b = io.BytesIO()
+            build_pdf_report(res, b)
+            buffers.append(b)
+    if not buffers:                     # nothing at all to render -> a stub page
+        buffers.append(_stub_pdf("No reports to display."))
+    return _merge_pdfs(buffers, pdf_path)
 
 
 def build_hod_staff_foldered_pdf_zip(groups, zip_path):

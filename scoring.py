@@ -473,9 +473,13 @@ def load_offering_dataset(master, cycle, offering_id):
     offering = master.execute(
         """
         SELECT o.*, c.code AS category_code, c.name AS category_name,
-               c.report_key AS report_key
+               c.report_key AS report_key,
+               f.home_dept_code AS hod_dept_code,   -- the HOD the teacher reports to
+               cy.label         AS cycle_label      -- e.g. 'CA1 – Intermediate'
         FROM offering o
         LEFT JOIN category c ON c.id = o.category_id
+        LEFT JOIN faculty  f ON f.emp_no = o.faculty_id
+        LEFT JOIN cycle    cy ON cy.code  = o.cycle_code
         WHERE o.id = ?
         """,
         (offering_id,),
