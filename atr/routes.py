@@ -110,6 +110,87 @@ def _ist(ts):
 # helper shape as admin/reports.py; the DDL is CREATE ... IF NOT EXISTS so this
 # is a harmless no-op on an already-migrated file.
 # ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# HOD-INITIATED ATR (Sept 2026) — shared helpers
+# ----------------------------------------------------------------------------
+# The HOD now drives ATR from their own portal (an "Ask ATR" button per course),
+# instead of the admin blasting reports + ATR links to every faculty. So the ATR
+# flow (ask -> faculty files -> HOD endorses -> ...) must work REGARDLESS of the
+# admin "ATR mode" toggle (which now only governs that old admin bulk send). The
+# guards above were removed for exactly that reason.
+# ----------------------------------------------------------------------------
+_ATR_STATUS_LABELS = {
+    atr_workflow.STATE_EXPECTED:     "Pending faculty",
+    atr_workflow.STATE_DRAFT:        "Faculty drafting",
+    atr_workflow.STATE_PENDING_HOD:  "Pending HOD",
+    atr_workflow.STATE_PENDING_VD:   "Pending Vice-Dean",
+    atr_workflow.STATE_PENDING_DEAN: "Pending Dean",
+    atr_workflow.STATE_CLOSED:       "Closed",
+}
+
+
+def _atr_status_label(state):
+    """A human, live status for the HOD's course list (EXPECTED reads as
+    'Pending faculty' — we have asked, the faculty has not yet submitted)."""
+    return _ATR_STATUS_LABELS.get(state, state or "\u2014")
+
+
+def _titled_faculty(name):
+    """'manoj kumar dr' -> 'Dr. Manoj Kumar'-ish: move a trailing honorific to the
+    front (mirrors report_export._name_titled). No title -> the name as stored."""
+    parts = (name or "").strip().split()
+    hon = {"dr": "Dr.", "mr": "Mr.", "ms": "Ms.", "mrs": "Mrs.", "prof": "Prof."}
+    if len(parts) >= 2 and parts[-1].rstrip(".").lower() in hon:
+        # Title the name portion so a formal email reads well whatever the DB case
+        # ("manoj kumar dr" -> "Dr. Manoj Kumar").
+        return hon[parts[-1].rstrip(".").lower()] + " " + " ".join(parts[:-1]).title()
+    return (name or "").strip().title() or "Faculty"
+
+
+def _atr_request_email(offering, cycle_row, dept_name, link):
+    """The formal, SYSTEM-VOICED ATR request email, attributed to the HOD. Returns
+    (subject, body). No report is attached — the HOD asks after a discussion; the
+    faculty submits the reason/plan/action at the one-time link."""
+    def g(row, key, default=""):
+        try:
+            return row[key] if row[key] is not None else default
+        except (KeyError, IndexError, TypeError):
+            return default
+    faculty = _titled_faculty(g(offering, "faculty"))
+    course_code = g(offering, "course_code")
+    course_name = g(offering, "course_name")
+    course_line = (" \u2013 ".join([p for p in (course_code, course_name) if p])) or "your course"
+    cycle_label = g(cycle_row, "label", "this cycle")
+    subject = ("Action Taken Report (ATR) requested \u2014 %s (%s)"
+               % (" ".join([p for p in (course_code, course_name) if p]) or "your course",
+                  cycle_label))
+    body = "\n".join([
+        "Dear %s," % faculty,
+        "",
+        ("The Head of the Department / Department Coordinator, %s, has requested "
+         "you to submit an Action Taken Report (ATR) for the course %s, based on "
+         "the student feedback collected for %s."
+         % (dept_name, course_line, cycle_label)),
+        "",
+        ("Kindly prepare your report in the format discussed, addressing the "
+         "following three points:"),
+        "",
+        "  1. The Reason  \u2014 your reflection on the feedback and the areas identified for improvement.",
+        "  2. The Plan    \u2014 the corrective measures you propose to undertake.",
+        "  3. The Action  \u2014 the specific steps you have taken, or will take, to address them.",
+        "",
+        ("Please submit your Action Taken Report using the secure link below "
+         "(unique to you and to this course):"),
+        "",
+        "    %s" % link,
+        "",
+        "Regards,",
+        "Automated Feedback System",
+        "Sri Ramachandra Faculty of Engineering and Technology",
+    ])
+    return subject, body
+
+
 def _open_cycle_db(cycle_row):
     conn = db.get_cycle(cycle_row["academic_year"], cycle_row["code"])
     schema_path = os.path.join(Config.BASE_DIR, "schema_cycle.sql")
@@ -165,7 +246,6 @@ def _find_faculty_token(jti):
 # consume the link).
 # ----------------------------------------------------------------------------
 @atr_bp.route("/atr/file", methods=["GET"])
-@atr_feature_required_public
 def atr_file_form():
     jti = request.args.get("token", "").strip()
     cycle_row, cy, tok = _find_faculty_token(jti)
@@ -202,7 +282,6 @@ def atr_file_form():
 # atr_workflow; this route only orchestrates.
 # ----------------------------------------------------------------------------
 @atr_bp.route("/atr/file", methods=["POST"])
-@atr_feature_required_public
 def atr_file_submit():
     jti = request.args.get("token", request.form.get("token", "")).strip()
     body = (request.form.get("body", "") or "").strip()
@@ -489,15 +568,22 @@ def atr_dashboard():
         # programme. The delivery's band/score/count come from the single
         # classification row that lives on its responded anchor; the display row and
         # the report link use the smallest-id member (members_of pools it back).
+        atr_by_oid = {a["offering_id"]: a for a in atrs}
         for _anchor, g in consolidation.group_rows(visible).items():
             info = None
+            ask_oid = None                        # the oid we create/target the ATR on
             for oid in g["oids"]:                 # the one classified member = anchor
                 if oid in cls_map:
                     info = cls_map[oid]
+                    ask_oid = oid
                     break
+            if ask_oid is None:                   # no responses -> use the display member
+                ask_oid = g["rows"][0]["id"]
             disp = dict(g["rows"][0])             # smallest-id member for identity/link
             if g["is_elective"]:
                 disp["dept_code"] = ", ".join(g["dept_codes"])
+            # The delivery's ATR (created once, at an anchor) — for the live status.
+            atr_row = next((atr_by_oid[o] for o in g["oids"] if o in atr_by_oid), None)
             all_offerings.append({
                 "offering": disp,
                 "band": info["band"] if info else None,
@@ -505,6 +591,12 @@ def atr_dashboard():
                 "n_responses": info["n_responses"] if info else None,
                 # An ATR exists for the delivery if any member id has one (the anchor).
                 "has_atr": any(oid in atr_oids for oid in g["oids"]),
+                # HOD "Ask ATR" (Sept 2026): the oid to target, and the live status
+                # once an ATR has been asked for (None until the HOD clicks Ask ATR).
+                "ask_oid": ask_oid,
+                "atr_state": atr_row["state"] if atr_row else None,
+                "atr_status_label": (_atr_status_label(atr_row["state"])
+                                     if atr_row else None),
             })
 
     # (Module 5) EXTERNAL / UNASSIGNED sections — only for college-wide leaders
@@ -600,6 +692,103 @@ def atr_dashboard():
                            external_rows=external_rows,
                            unassigned_rows=unassigned_rows,
                            my_count=my_count, can_endorse_all=can_endorse_all)
+
+
+# ----------------------------------------------------------------------------
+# POST /atr/ask/<cycle_code>/<offering_id>  —  HOD-INITIATED ATR (Sept 2026)
+# ----------------------------------------------------------------------------
+# The HOD clicks "Ask ATR" on a course in their dashboard. We create the EXPECTED
+# ATR for that delivery and email the faculty a formal, system-voiced request
+# (attributed to the HOD) carrying a one-time File-ATR link. This is the HOD-driven
+# path that REPLACES the old admin bulk "send reports + ATR to all faculty" — so it
+# works regardless of the admin ATR-mode toggle. RBAC-scoped by the same §4 choke-
+# point as the dashboard: a HOD can only ask for a course taught by their own
+# department's faculty (rbac.visible_offerings), never one outside their scope.
+# ----------------------------------------------------------------------------
+@atr_bp.route("/atr/ask/<cycle_code>/<int:offering_id>", methods=["POST"])
+@leader_required
+def atr_ask(cycle_code, offering_id):
+    leader = _current_leader()
+    master = get_master()
+    cycle_row = _cycle_by_code(master, cycle_code)
+    if cycle_row is None:
+        master.close(); abort(404)
+    # RBAC scope: the offering must be one this leader may see.
+    visible = {o["id"]: o for o in rbac.visible_offerings(master, leader, cycle_code)}
+    offering = visible.get(offering_id)
+    if offering is None:
+        master.close(); abort(403)
+
+    faculty_email = notifications.faculty_email_for(master, offering)
+    # The HOD's department name (the faculty's home department) for the sign-off.
+    def _off(key):
+        try:
+            return offering[key]
+        except (KeyError, IndexError, TypeError):
+            return None
+    eff = _off("eff_dept")
+    dept_name = None
+    if eff:
+        drow = master.execute("SELECT name FROM department WHERE code = ?",
+                              (eff,)).fetchone()
+        if drow and drow["name"]:
+            dept_name = drow["name"]
+    dept_name = dept_name or (_off("dept_code") or "your department")
+
+    cy = _open_cycle_db(cycle_row)
+    # Already asked? Do not re-create or re-email (the queue's "Send reminder"
+    # button is the way to nudge an EXPECTED ATR). Keeps a double-click safe.
+    if atr_workflow.get_atr_for_offering(cy, offering_id) is not None:
+        cy.close(); master.close()
+        flash("ATR has already been initiated for this course.", "info")
+        return redirect(url_for("atr.atr_dashboard", cycle=cycle_code))
+
+    # No real faculty inbox (external/placeholder teacher): route to the HOD-filed
+    # path so the course still enters the flow, and send NO dead link.
+    if not faculty_email:
+        try:
+            atr_workflow.ensure_hod_filed_atr(cy, offering_id, cycle_code)
+            cy.commit()
+        finally:
+            cy.close(); master.close()
+        flash("No faculty email on file for this course \u2014 the ATR is set to "
+              "HOD-filed (you will write the note for the review chain).", "info")
+        return redirect(url_for("atr.atr_dashboard", cycle=cycle_code))
+
+    # Normal path: EXPECTED ATR + a one-time File-ATR link for the faculty.
+    try:
+        atr_workflow.ensure_expected_atr(cy, offering_id, cycle_code)
+        jti, _exp = faculty_tokens.issue(cy, offering_id, faculty_email,
+                                         purpose=faculty_tokens.PURPOSE_ATR_FILE)
+        cy.commit()
+    except Exception:
+        cy.rollback(); cy.close(); master.close()
+        raise
+    cy.close()
+
+    base = notifications.public_base_url().rstrip("/")
+    link = notifications.atr_file_url(base, jti)
+    subject, body = _atr_request_email(offering, cycle_row, dept_name, link)
+    import emailer
+    res = emailer.send_batch(Config.BASE_DIR, subject,
+                             [{"to": faculty_email, "body": body}],
+                             test_level=emailer.test_level_of(cycle_row),
+                             audience="faculty")
+    master.close()
+
+    import activity_log
+    activity_log.note(detail="Ask ATR \u2192 %s (offering #%s)" % (faculty_email, offering_id),
+                      cycle_code=cycle_code, target_type="offering",
+                      target_id=offering_id)
+    if res.get("count"):
+        flash("ATR requested \u2014 the faculty has been emailed the submission link.",
+              "success")
+    else:
+        errs = "; ".join(res.get("errors", [])) or "unknown error"
+        flash("The ATR was initiated, but the email could not be sent (%s). Use "
+              "\u2018Send reminder\u2019 on the ATR queue to retry." % errs[:200],
+              "error")
+    return redirect(url_for("atr.atr_dashboard", cycle=cycle_code))
 
 
 # ----------------------------------------------------------------------------
@@ -848,7 +1037,6 @@ def _guard_leader_on_atr(leader, master, atr_row):
 # endorse/return controls IF this leader may act on it right now (legal_actions).
 # ----------------------------------------------------------------------------
 @atr_bp.route("/atr/review/<cycle_code>/<int:atr_id>")
-@atr_feature_required_leader
 @leader_required
 def atr_review(cycle_code, atr_id):
     leader = _current_leader()
@@ -907,7 +1095,6 @@ def atr_review(cycle_code, atr_id):
 # first via _guard_leader_on_atr.
 # ----------------------------------------------------------------------------
 @atr_bp.route("/atr/review/<cycle_code>/<int:atr_id>/<action>", methods=["POST"])
-@atr_feature_required_leader
 @leader_required
 def atr_act(cycle_code, atr_id, action):
     action = action.upper()
@@ -1116,7 +1303,6 @@ def escalate_past_self(master, cy, cycle_row, offering, atr_id):
 # endorsement closes the last ATR, the cycle flips to RECORDED.
 # ----------------------------------------------------------------------------
 @atr_bp.route("/atr/endorse-all/<cycle_code>", methods=["POST"])
-@atr_feature_required_leader
 @leader_required
 def atr_endorse_all(cycle_code):
     leader = _current_leader()
@@ -1206,7 +1392,6 @@ def atr_endorse_all(cycle_code):
 # apply_transition (which rejects REMIND by design). RBAC-guarded.
 # ----------------------------------------------------------------------------
 @atr_bp.route("/atr/remind/<cycle_code>/<int:offering_id>", methods=["POST"])
-@atr_feature_required_leader
 @leader_required
 def atr_remind(cycle_code, offering_id):
     leader = _current_leader()
