@@ -315,6 +315,18 @@ class NumberedCanvas(_rl_canvas.Canvas):
         # divider unit begins. Used by save() for even-page (duplex) padding.
         self._report_starts = []
 
+    @staticmethod
+    def _page_is_empty(state):
+        """True when a buffered page drew NO real content. ReportLab keeps the
+        page's PDF operators in `_code`; a content page shows text (Tj/TJ) or an
+        image (Do), a phantom blank page shows neither. (The footer/watermark are
+        added later during save-time replay, so they are not in `_code` yet and a
+        phantom is still detectable here.)"""
+        import re as _re
+        code = state.get("_code")
+        joined = "".join(code) if isinstance(code, list) else (code or "")
+        return not _re.search(r"\)\s*Tj|\]\s*TJ|\bDo\b", joined)
+
     def showPage(self):
         # Buffer this page instead of emitting it, so we can revisit at save().
         self._saved_page_states.append(dict(self.__dict__))
@@ -332,39 +344,36 @@ class NumberedCanvas(_rl_canvas.Canvas):
         # printer that guarantees the next teacher's report starts on the front of
         # a new sheet. If no markers were placed (an unexpected caller), nothing
         # is padded and the output is byte-for-byte the old behaviour.
-        total = len(self._saved_page_states)
-        starts = sorted(set(getattr(self, "_report_starts", []) or []))
+        states = self._saved_page_states
+        # FIRST drop any TRAILING blank pages. ReportLab can emit an empty final
+        # page when the last flowable draws nothing (e.g. a spacer that spills off
+        # the foot of a full page). If we counted that phantom, an otherwise-even
+        # report would look ODD and get a needless blank duplex pad after it. A
+        # real content page always draws text/images; a phantom draws neither.
+        while len(states) > 1 and self._page_is_empty(states[-1]):
+            states.pop()
+        total = len(states)
+        starts = sorted(set(p for p in (getattr(self, "_report_starts", []) or [])
+                            if p <= total))
         pad_after = set()          # 1-based content page numbers to pad AFTER
         for i, s in enumerate(starts):
             end = (starts[i + 1] - 1) if i + 1 < len(starts) else total
             if (end - s + 1) % 2 == 1:          # odd-length unit -> pad to even
                 pad_after.add(end)
-        for idx, state in enumerate(self._saved_page_states):
+        for idx, state in enumerate(states):
             self.__dict__.update(state)
             if self._watermark:
                 self._draw_watermark()
             self._draw_footer(total)
             super().showPage()                  # emit this real content page
             if (idx + 1) in pad_after:
-                # reportlab has just started a fresh blank page; caption it and
-                # emit it as the duplex separator, then carry on. The pad page
-                # carries no footer and no page number — it is a separator, not
-                # content, so "Page X of Y" keeps counting real pages only.
-                self._draw_pad_caption()
+                # reportlab has just started a fresh page; emit it COMPLETELY
+                # BLANK — nothing drawn on it: no caption, no footer, no page
+                # number — as the duplex separator, then carry on. "Page X of Y"
+                # keeps counting real content pages only, so the numbering simply
+                # skips the blank sheet.
                 super().showPage()
         super().save()
-
-    def _draw_pad_caption(self):
-        """A faint centred note on a blank duplex-pad page, so a reader knows the
-        blank sheet is intentional (for correct double-sided printing) and not a
-        printer fault."""
-        self.saveState()
-        self.setFont("Helvetica-Oblique", 9)
-        self.setFillColor(colors.HexColor("#B8C2CC"))
-        self.drawCentredString(A4[0] / 2.0, A4[1] / 2.0,
-                               "This page is intentionally left blank "
-                               "(for correct double-sided printing).")
-        self.restoreState()
 
     def _draw_watermark(self):
         """Large, faint, diagonal watermark across the page (spec §9.1 test mode)."""
@@ -703,8 +712,12 @@ def _append_pdf_story(result, story, ss):
         _first = Paragraph("1. " + _cmt_markup(comments[0]), ss["Cmt"])
         story.append(KeepTogether([_cmt_title, Spacer(1, 4), _first]))
         for _i, _c in enumerate(comments[1:], start=2):
-            story.append(Paragraph("%d. %s" % (_i, _cmt_markup(_c)), ss["Cmt"]))
+            # Small gap BEFORE each subsequent comment, never AFTER the last one:
+            # a trailing spacer at the foot of a full page can spill onto a new,
+            # otherwise-empty page — which would then be miscounted and trigger a
+            # needless duplex pad. Keeping the gap leading avoids that entirely.
             story.append(Spacer(1, 2))
+            story.append(Paragraph("%d. %s" % (_i, _cmt_markup(_c)), ss["Cmt"]))
     else:
         # Always show the section (even with nothing in it) so a reader can tell
         # "no comments were left" apart from "the comments were dropped".
