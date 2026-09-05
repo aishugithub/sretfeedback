@@ -34,11 +34,16 @@
 #                                      form (which, for the agree scale, is NOT
 #                                      the same as weight order — see below).
 #
-# CRITICAL APPROVED QUIRK (spec 10.1): on the agree scale, "Moderately Agree"
-# carries weight 8 while plain "Agree" carries weight 6 — so Moderately Agree
-# OUTRANKS Agree. The form prints them in the order SA, A, MA, D, SD, which is
-# why display_order (2 for Agree, 3 for Moderately Agree) differs from the
-# weight ranking. Storing both columns reproduces layout AND scoring faithfully.
+# SCALE CORRECTION (2026-09-05): plain "Agree" carries weight 8 and "Moderately
+# Agree" carries weight 6, so Agree OUTRANKS Moderately Agree. This matches the
+# plain-English meaning ("moderately agree" is a *weaker* positive than a firm
+# "agree") and the form's own option order (SA, Agree, Moderately Agree, D, SD).
+# HISTORY: the four originally-approved "Feedback Report V2.0" workbooks had these
+# two weights swapped (Moderately Agree 8 > Agree 6), so the app reproduced that
+# until now. The swap below is the deliberate, signed-off correction.
+# NOTE: display_order is the left-to-right PRINT position on the form and is left
+# unchanged; ONLY the two weights move. The matching live-database update lives in
+# migrate_swap_agree_weights.py; see HANDOFF-2026-09-05-agree-weight-swap.md.
 # ----------------------------------------------------------------------------
 
 SCALES = [
@@ -50,8 +55,8 @@ SCALES = [
         "options": [
             # (label,               weight, fraction, display_order)
             ("Strongly Agree",       10.0,   None,     1),
-            ("Agree",                 6.0,   None,     2),  # printed 2nd, weight 6
-            ("Moderately Agree",      8.0,   None,     3),  # printed 3rd, weight 8 (> Agree)
+            ("Agree",                 8.0,   None,     2),  # printed 2nd; weight 8 (> Moderately Agree) — corrected 2026-09-05
+            ("Moderately Agree",      6.0,   None,     3),  # printed 3rd; weight 6 (< Agree) — corrected 2026-09-05
             ("Disagree",              4.0,   None,     4),
             ("Strongly Disagree",     1.0,   None,     5),
         ],
@@ -69,19 +74,25 @@ SCALES = [
         ],
     },
     {
-        # Theory-only "Post Assessment" scale (spec 10.1). Discussed Completely
-        # = 10, Partially Discussed = 6, Not Discussed = 1. "Discussed Late" is
-        # an OPEN ITEM (spec Section 14.2): the approved formula currently
-        # ignores it (contributes 0 but still counts in the denominator), so we
-        # store its weight as NULL and let the professor set it later.
+        # Theory-only "Post Assessment" scale (spec 10.1). CORRECTED 2026-09-05 so
+        # the weights follow the logical quality order:
+        #   Discussed Completely 10 > Partially Discussed 6 > Discussed Late 1
+        #   > Not Discussed 0.
+        # HISTORY: the approved formula had Not Discussed = 1 and left "Discussed
+        # Late" as an OPEN ITEM (spec 14.2) contributing 0 — which perversely
+        # scored "never discussed" (1) ABOVE "discussed, just late" (0). We now
+        # resolve the open item (Discussed Late = 1) and drop Not Discussed to 0
+        # (the true worst case). "Discussed Late" is still read through the
+        # configurable path (scoring.get_discussed_late_weight -> the stored
+        # weight below), so callers pick it up with no code change.
         "code": "POST_ASSESS",
         "name": "Post Assessment (answer-key discussion)",
         "is_free_text": False,
         "options": [
             ("Discussed Completely", 10.0, None, 1),
-            ("Discussed Late",       None, None, 2),  # OPEN ITEM — weight to be confirmed
+            ("Discussed Late",        1.0, None, 2),  # resolved 2026-09-05: discussed but late = 1 (> Not Discussed)
             ("Partially Discussed",   6.0, None, 3),
-            ("Not Discussed",         1.0, None, 4),
+            ("Not Discussed",         0.0, None, 4),  # corrected 2026-09-05: never discussed = 0 (the worst case)
         ],
     },
     {

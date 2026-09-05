@@ -281,27 +281,38 @@ class _ReportStart(Flowable):
     of each department divider in the by-HOD combined PDF).
 
     It draws nothing and takes no space, but at layout time it records — on the
-    shared NumberedCanvas — the page number on which this unit begins. Those
-    recorded boundaries are what NumberedCanvas.save() uses to pad every unit to
-    an EVEN number of pages, so that when many reports are printed back-to-back on
-    a duplex printer, each teacher's report starts on the FRONT of a fresh sheet
-    and never on the back of the previous teacher's last page. Fits into the whole
-    pipeline as the tiny hook that turns "one long story of many reports" into
-    "many reports that each own a whole number of sheets".
+    shared NumberedCanvas — WHERE this unit begins (its first page), the FOOTER
+    text to stamp on that unit's pages, and whether it is a divider (dividers get
+    no footer and no page number). NumberedCanvas.save() uses these boundaries to
+    (a) number every report on its OWN "Page X of Y" (numbering restarts per
+    report, never running across a consolidated file), (b) pad any odd-length unit
+    to even so the next report opens on the FRONT of a fresh duplex sheet, and
+    (c) drop any phantom blank page a report may have produced. This is the hook
+    that turns "one long story of many reports" into "many reports that each
+    number and page themselves" — in pure ReportLab, with NO PDF-merge library.
     """
     width = 0
     height = 0
+
+    def __init__(self, footer_text=None, is_divider=False):
+        super().__init__()
+        self._footer_text = footer_text or ""
+        self._is_divider = bool(is_divider)
 
     def wrap(self, availWidth, availHeight):
         return (0, 0)              # occupies no space, forces no break of its own
 
     def draw(self):
         canv = self.canv
-        if not hasattr(canv, "_report_starts"):
-            canv._report_starts = []
+        if not hasattr(canv, "_report_units"):
+            canv._report_units = []
         # canv._pageNumber is the 1-based page currently being laid out, i.e. the
-        # first page of the report this marker introduces.
-        canv._report_starts.append(canv._pageNumber)
+        # first page of the report/divider this marker introduces.
+        canv._report_units.append({
+            "page": canv._pageNumber,
+            "footer": self._footer_text,
+            "is_divider": self._is_divider,
+        })
 
 
 class NumberedCanvas(_rl_canvas.Canvas):
@@ -311,9 +322,10 @@ class NumberedCanvas(_rl_canvas.Canvas):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._saved_page_states = []
-        # Filled by _ReportStart.draw(): the 1-based page on which each report /
-        # divider unit begins. Used by save() for even-page (duplex) padding.
-        self._report_starts = []
+        # Filled by _ReportStart.draw(): one entry per report/divider unit, each
+        # {page, footer, is_divider}. save() uses these for per-report numbering,
+        # per-report even-page (duplex) padding, and phantom-page trimming.
+        self._report_units = []
 
     @staticmethod
     def _page_is_empty(state):
@@ -333,45 +345,55 @@ class NumberedCanvas(_rl_canvas.Canvas):
         self._startPage()
 
     def save(self):
-        # Every buffered page is a real content page. The total is now known, so
-        # we replay each one stamping the true "Page X of Y" footer.
-        #
-        # DUPLEX PADDING (restored Sept 2026, smarter than the old blanket pad):
-        # each report/divider was marked at its first page by a _ReportStart
-        # flowable, so self._report_starts holds the page each unit begins on. A
-        # unit that spans an ODD number of pages gets ONE blank "intentionally
-        # left blank" page appended, making every unit even. On a double-sided
-        # printer that guarantees the next teacher's report starts on the front of
-        # a new sheet. If no markers were placed (an unexpected caller), nothing
-        # is padded and the output is byte-for-byte the old behaviour.
+        # Replay the buffered pages organised into UNITS (one report, or one
+        # department divider), each marked at its first page by a _ReportStart.
+        # For each unit we: drop any trailing PHANTOM blank page it produced;
+        # number its pages on their OWN "Page X of Y"; stamp the unit's footer;
+        # and, if the unit ends on an ODD page, append ONE completely-blank page so
+        # it is even — guaranteeing the next report opens on the front of a fresh
+        # duplex sheet. All pure ReportLab; no PDF-merge library required.
         states = self._saved_page_states
-        # FIRST drop any TRAILING blank pages. ReportLab can emit an empty final
-        # page when the last flowable draws nothing (e.g. a spacer that spills off
-        # the foot of a full page). If we counted that phantom, an otherwise-even
-        # report would look ODD and get a needless blank duplex pad after it. A
-        # real content page always draws text/images; a phantom draws neither.
-        while len(states) > 1 and self._page_is_empty(states[-1]):
-            states.pop()
-        total = len(states)
-        starts = sorted(set(p for p in (getattr(self, "_report_starts", []) or [])
-                            if p <= total))
-        pad_after = set()          # 1-based content page numbers to pad AFTER
-        for i, s in enumerate(starts):
-            end = (starts[i + 1] - 1) if i + 1 < len(starts) else total
-            if (end - s + 1) % 2 == 1:          # odd-length unit -> pad to even
-                pad_after.add(end)
-        for idx, state in enumerate(states):
-            self.__dict__.update(state)
-            if self._watermark:
-                self._draw_watermark()
-            self._draw_footer(total)
-            super().showPage()                  # emit this real content page
-            if (idx + 1) in pad_after:
-                # reportlab has just started a fresh page; emit it COMPLETELY
-                # BLANK — nothing drawn on it: no caption, no footer, no page
-                # number — as the duplex separator, then carry on. "Page X of Y"
-                # keeps counting real content pages only, so the numbering simply
-                # skips the blank sheet.
+        n = len(states)
+        units = sorted(getattr(self, "_report_units", []) or [],
+                       key=lambda u: u["page"])
+        if not units:
+            # No markers (an unexpected caller): number the whole document as one
+            # plain unit, trailing phantom trimmed, padded to even if odd.
+            units = [{"page": 1, "footer": self.footer_left or "", "is_divider": False}]
+
+        # Build an emission plan over the buffered pages.
+        #   ("page", state_index_1based, footer_or_None, local_num, local_total)
+        #   ("blank", ...)                          -> one completely-blank pad page
+        plan = []
+        for i, u in enumerate(units):
+            s = max(1, int(u["page"]))
+            e = (int(units[i + 1]["page"]) - 1) if i + 1 < len(units) else n
+            e = min(e, n)
+            if e < s:
+                continue
+            idxs = list(range(s, e + 1))            # 1-based buffered page indices
+            # Drop trailing phantom (empty) pages that belong to THIS unit — e.g. a
+            # trailing spacer that spilled onto a new, otherwise-empty page. Without
+            # this an even report would look odd and gain a needless blank pad.
+            while len(idxs) > 1 and self._page_is_empty(states[idxs[-1] - 1]):
+                idxs.pop()
+            k = len(idxs)
+            footer = None if u.get("is_divider") else (u.get("footer") or "")
+            for j, pidx in enumerate(idxs, start=1):
+                plan.append(("page", pidx, footer, j, k))
+            if k % 2 == 1:                          # odd unit -> one blank pad page
+                plan.append(("blank", None, None, 0, 0))
+
+        for op, pidx, footer, local_num, local_total in plan:
+            if op == "page":
+                self.__dict__.update(states[pidx - 1])
+                if self._watermark:
+                    self._draw_watermark()
+                if footer is not None:              # dividers pass footer=None
+                    self._draw_footer(footer, local_num, local_total)
+                super().showPage()
+            else:
+                # A completely blank duplex separator: nothing drawn, no number.
                 super().showPage()
         super().save()
 
@@ -385,17 +407,14 @@ class NumberedCanvas(_rl_canvas.Canvas):
         self.drawCentredString(0, 0, self._watermark)
         self.restoreState()
 
-    def _draw_footer(self, total, page_num=None):
+    def _draw_footer(self, footer_text, page_num, total):
         """Two-line footer (spec §13.1, descriptive form):
           line 1 (just above a thin rule): the identity line on the LEFT and the
                  per-report "Page X of Y" on the RIGHT;
           line 2 (below): the confidentiality notice, small and centred.
-        Because every report is now rendered as its OWN PDF (the by-HOD/batch
-        combined files are built by merging these), `self._pageNumber`/`total`
-        are already this one report's local page and page-count — so numbering
-        restarts at "Page 1 of N" for each teacher, never running across the
-        whole consolidated file."""
-        page_num = self._pageNumber if page_num is None else page_num
+        save() calls this with THIS unit's own footer text and LOCAL page numbers,
+        so each report in a consolidated file numbers itself from Page 1 — the
+        numbering never runs across the whole file."""
         self.saveState()
         y = 11 * mm
         self.setStrokeColor(colors.HexColor("#b8c2cc"))
@@ -409,11 +428,12 @@ class NumberedCanvas(_rl_canvas.Canvas):
         self.setFont("Helvetica-Bold", 7)
         self.setFillColor(colors.HexColor("#333333"))
         self.drawRightString(right_x, y, pnum)
+        _footer_left_text = footer_text or ""
         # --- Identity line (left). Shrink the font (7 -> 5pt) to fit the space
         #     left of the page number; if it still will not fit, trim with an
         #     ellipsis. This guarantees the two never collide, however long a
         #     course name or elective code-list is.
-        ident = self.footer_left or ""
+        ident = _footer_left_text
         gap = 6 * mm
         avail = right_x - left_x - self.stringWidth(pnum, "Helvetica-Bold", 7) - gap
         size = 7.0
@@ -576,100 +596,38 @@ def build_staff_foldered_pdf_zip(results, zip_path):
     return zip_path
 
 
-def _merge_pdfs(buffers, out_path):
-    """Concatenate several in-memory single-report PDFs into ONE file, page for
-    page, with pypdf. Each buffer is a fully-formed report — already even-paged
-    (duplex-safe) and already carrying its OWN "Page X of Y" footer — so the
-    merged file numbers every report independently and every report still opens
-    on the front of a fresh sheet. This is how the by-HOD / batch combined PDFs
-    are assembled now, instead of stitching one giant story (which numbered pages
-    across the whole file and could not pad or number each report on its own)."""
-    from pypdf import PdfReader, PdfWriter
-    writer = PdfWriter()
-    for buf in buffers:
-        buf.seek(0)
-        for page in PdfReader(buf).pages:
-            writer.add_page(page)
-    with open(out_path, "wb") as fh:
-        writer.write(fh)
-    return out_path
-
-
-def _stub_pdf(text):
-    """A one-page placeholder PDF (used when a batch/group has nothing to show)."""
-    import io
-    buf = io.BytesIO()
-    ss = _pdf_styles()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=14 * mm, bottomMargin=14 * mm,
-                            leftMargin=15 * mm, rightMargin=15 * mm)
-    doc.build([Paragraph(text, ss["Ident"])])
-    buf.seek(0)
-    return buf
-
-
-def _one_blank_page_pdf():
-    """A single completely-blank A4 page. Used to pad a department divider to an
-    even page count so the department's first report opens on a fresh sheet."""
-    import io
-    buf = io.BytesIO()
-    c = _rl_canvas.Canvas(buf, pagesize=A4)
-    c.showPage()          # emit exactly one blank page
-    c.save()
-    buf.seek(0)
-    return buf
-
-
-def _build_divider_pdf(label, count, watermark=None):
-    """One department-divider page (big centred label + a one-line count) as its
-    own 1-page PDF buffer. It carries NO footer and NO page number — it is a
-    separator, not a report. The caller pads it to even with a blank page. A
-    TEST-DATA watermark, if any, is drawn so a test batch is obvious."""
-    import io
-    ss = _pdf_styles()
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=14 * mm, bottomMargin=14 * mm,
-                            leftMargin=15 * mm, rightMargin=15 * mm,
-                            title="Department divider")
-    story = [Spacer(1, 90),
-             Paragraph("<b>%s</b>" % (label or "Department"), ss["Title"]),
-             Spacer(1, 8),
-             Paragraph("%d course report(s) in this department" % count, ss["Ident"])]
-
-    def _wm(canvas, _doc):
-        if not watermark:
-            return
-        canvas.saveState()
-        canvas.setFont("Helvetica-Bold", 60)
-        canvas.setFillColor(colors.Color(0.85, 0.2, 0.2, alpha=0.16))
-        canvas.translate(A4[0] / 2.0, A4[1] / 2.0)
-        canvas.rotate(45)
-        canvas.drawCentredString(0, 0, watermark)
-        canvas.restoreState()
-
-    doc.build(story, onFirstPage=_wm, onLaterPages=_wm)
-    buf.seek(0)
-    return buf
-
-
 def build_batch_pdf(results, pdf_path):
     """Bulk PDF: one combined multi-page PDF for the whole batch (spec 11).
 
-    Each report is rendered INDEPENDENTLY by build_pdf_report into an in-memory
-    PDF — so it is even-paged (duplex-safe), phantom-page free, and carries its
-    OWN per-report "Page X of Y" footer — and the finished report PDFs are then
-    concatenated with pypdf (see _merge_pdfs). This replaces the old shared-story
-    concatenation, which numbered pages across the whole file and could neither
-    pad nor number each report on its own.
+    Every report's flowables are stacked into ONE document (a PageBreak between
+    reports); each report carries a _ReportStart marker (added by _append_pdf_story)
+    holding its footer text, so NumberedCanvas.save() numbers each report on its
+    OWN "Page X of Y", pads any odd report to even (duplex), and drops phantom
+    pages — all in pure ReportLab, no PDF-merge library.
     """
-    import io
-    buffers = []
-    for res in results:
-        b = io.BytesIO()
-        build_pdf_report(res, b)      # even-paged + own footer/numbering
-        buffers.append(b)
-    if not buffers:
-        buffers.append(_stub_pdf("No reports to display."))
-    return _merge_pdfs(buffers, pdf_path)
+    from reportlab.platypus import PageBreak
+    ss = _pdf_styles()
+    doc = SimpleDocTemplate(pdf_path, pagesize=A4,
+                            topMargin=14 * mm, bottomMargin=18 * mm,
+                            leftMargin=15 * mm, rightMargin=15 * mm,
+                            title="SRET Feedback Reports (Batch)")
+    story = []
+    watermark = None
+    for idx, res in enumerate(results):
+        if watermark is None and hasattr(res, "get") and res.get("watermark"):
+            watermark = res.get("watermark")
+        _append_pdf_story(res, story, ss)            # adds its own _ReportStart(footer)
+        if idx != len(results) - 1:
+            story.append(PageBreak())
+    if not story:
+        story.append(Paragraph("No reports to display.", ss["Ident"]))
+
+    class _C(NumberedCanvas):
+        pass
+    _C.footer_left = ""
+    _C._watermark = watermark
+    doc.build(story, canvasmaker=_C)
+    return pdf_path
 
 
 def _append_pdf_story(result, story, ss):
@@ -680,11 +638,11 @@ def _append_pdf_story(result, story, ss):
     """
     from reportlab.platypus import PageBreak, Image as RLImage  # local imports
     vm = build_view_model(result)
-    # Mark the first page of THIS report so NumberedCanvas.save() can pad the
-    # report to an even page count for correct double-sided printing (see the
-    # _ReportStart / NumberedCanvas classes above). Must be the very first
-    # flowable so it lands on the report's opening page.
-    story.append(_ReportStart())
+    # Mark the first page of THIS report, carrying its descriptive footer text,
+    # so NumberedCanvas.save() can number it on its OWN "Page X of Y", pad it to
+    # an even page count for double-sided printing, and drop any phantom page.
+    # Must be the very first flowable so it lands on the report's opening page.
+    story.append(_ReportStart(_footer_left_for(result)))
     # TITLE: the college banner image (as seen on all our documents), then just
     # "Course Feedback Report" — no version number, no "SRET" text. The banner
     # lives at app/static/banner.png; if it is somehow missing we fall back to a
@@ -758,53 +716,85 @@ def _append_pdf_story(result, story, ss):
     for sec in vm["detail_sections"]:
         if not sec["questions"]:
             continue
+        # The section heading is printed ONCE, above whatever table(s) follow.
         block = [Paragraph(sec["title"], ss["SecTitle"])]
-        labels = [lbl for (lbl, _c) in sec["questions"][0]["counts"]]
-        # A leading "#" column numbers the questions Q1..Qn; the trailing "Avg"
-        # column carries each question's average /10 — the exact numbers that used
-        # to be drawn as a bar chart, kept as data after the v3.2 chart removal.
-        # HEADER CELLS ARE PARAGRAPHS, not raw strings: a plain string does NOT
-        # wrap inside a narrow ReportLab table cell, so long option labels like
-        # "Strongly Disagree" used to spill over and overlap the neighbouring
-        # columns ("Strongly DisagreAevg"). Wrapping each label in a Paragraph
-        # with the centred header style lets it break onto two lines and stay
-        # inside its own column.
-        header_cells = ([Paragraph("#", ss["Hdr"]), Paragraph("Question", ss["Hdr"])]
-                        + [Paragraph(lbl, ss["Hdr"]) for lbl in labels]
-                        + [Paragraph("Avg", ss["Hdr"])])
-        tdata = [header_cells]
-        # A section that scores at section level (Syllabus) leaves per-question
-        # averages None; for such a SINGLE-question section, show the section score
-        # in the Avg cell instead of a blank. Multi-question sections keep None.
+
+        # -------------------------------------------------------------------
+        # GROUP THE SECTION'S QUESTIONS BY THEIR OPTION-LABEL SIGNATURE
+        # (display fix, 2026-09-05)
+        # -------------------------------------------------------------------
+        # Most sections hold questions that all share ONE option scale, so they
+        # render as a single table. But Theory's "Exam Assessment" folds in the
+        # Post-Assessment question ("answer key discussed"), whose options are
+        # Discussed Completely / Discussed Late / Partially Discussed / Not
+        # Discussed — a DIFFERENT scale from the agree-scale rows above it. The
+        # old code took the column headers from the FIRST question only and
+        # forced every other question's counts into those headers; the Post-
+        # Assessment answer matched none of the agree columns, so that row
+        # printed 0/0/0/0/0 while still showing a real average — confusing and
+        # wrong-looking. We now split a section into consecutive groups of
+        # questions that share the SAME option labels and draw one correctly-
+        # headed table per group, while the question numbers keep counting
+        # continuously (Q1..Qn) across the whole section.
+        groups = []
+        for qb in sec["questions"]:
+            sig = tuple(lbl for (lbl, _c) in qb["counts"])  # this question's columns
+            if groups and groups[-1][0] == sig:
+                groups[-1][1].append(qb)                    # same scale -> same table
+            else:
+                groups.append((sig, [qb]))                  # new scale -> new table
+
+        # Section-level score fallback: the Syllabus section scores at section
+        # level and leaves each question's own average None; for such a SINGLE-
+        # question section we show the section score in the Avg cell instead of a
+        # blank. Multi-question sections keep None.
         sec_score = sec.get("score")
         single_q = len(sec["questions"]) == 1
-        for idx, qb in enumerate(sec["questions"], start=1):
-            qn = f"Q{idx}"
-            disp_avg = qb["average"]
-            if disp_avg is None and single_q:
-                disp_avg = sec_score
-            count_map = dict(qb["counts"])
-            counts = [count_map.get(lbl, 0) for lbl in labels]
-            tdata.append([qn, Paragraph(qb["text"], ss["Ident"])]
-                         + [str(c) for c in counts] + [_fmt(disp_avg)])
-        n_opt = len(labels)
-        num_w = 8 * mm
-        # Widths total unchanged (# 8 + question 70 + options 100 + avg 14 = 192).
-        tbl = Table(
-            tdata,
-            colWidths=[num_w, 70 * mm] + [(100 * mm) / max(n_opt, 1)] * n_opt + [14 * mm])
-        tbl.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEF1F4")),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),   # bold Q# so it stands out
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#C9CED3")),
-            ("FONTSIZE", (0, 0), (-1, -1), 7.5),
-            ("ALIGN", (0, 1), (0, -1), "CENTER"),              # centre the Q# column
-            ("ALIGN", (2, 1), (-1, -1), "CENTER"),             # centre the count/avg columns
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ]))
-        block.append(tbl)
-        block.append(Spacer(1, 10))
+
+        qnum = 0  # running question number, continuous across all groups
+        for gi, (sig, qbs) in enumerate(groups):
+            labels = list(sig)
+            # HEADER CELLS ARE PARAGRAPHS (not raw strings) so long labels like
+            # "Strongly Disagree" wrap inside the narrow column instead of
+            # spilling over the neighbouring cell.
+            header_cells = ([Paragraph("#", ss["Hdr"]), Paragraph("Question", ss["Hdr"])]
+                            + [Paragraph(lbl, ss["Hdr"]) for lbl in labels]
+                            + [Paragraph("Avg", ss["Hdr"])])
+            tdata = [header_cells]
+            for qb in qbs:
+                qnum += 1
+                qn = f"Q{qnum}"
+                disp_avg = qb["average"]
+                if disp_avg is None and single_q:
+                    disp_avg = sec_score
+                count_map = dict(qb["counts"])
+                # Each column now uses THIS group's own labels, so every count
+                # lands in the right place (the Post-Assessment row shows its
+                # real Discussed Completely / Partially / Not / Late counts).
+                counts = [count_map.get(lbl, 0) for lbl in labels]
+                tdata.append([qn, Paragraph(qb["text"], ss["Ident"])]
+                             + [str(c) for c in counts] + [_fmt(disp_avg)])
+            n_opt = len(labels)
+            num_w = 8 * mm
+            # Widths total unchanged (# 8 + question 70 + options 100 + avg 14 = 192);
+            # the 100mm option band is split evenly across THIS group's columns.
+            tbl = Table(
+                tdata,
+                colWidths=[num_w, 70 * mm] + [(100 * mm) / max(n_opt, 1)] * n_opt + [14 * mm])
+            tbl.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEF1F4")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),   # bold Q# so it stands out
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#C9CED3")),
+                ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+                ("ALIGN", (0, 1), (0, -1), "CENTER"),              # centre the Q# column
+                ("ALIGN", (2, 1), (-1, -1), "CENTER"),             # centre the count/avg columns
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]))
+            block.append(tbl)
+            # 6pt between two tables of the same section; 10pt after the last one
+            # (matching the original inter-section gap).
+            block.append(Spacer(1, 6 if gi < len(groups) - 1 else 10))
         story.append(KeepTogether(block))
 
     # ------------------------------------------------------------------
@@ -886,38 +876,60 @@ def build_grouped_combined_pdf(groups, pdf_path):
     """One combined PDF, a divider page introducing each department, then that
     department's reports.
 
-    Each report is rendered INDEPENDENTLY by build_pdf_report (even-paged, own
-    per-report footer + "Page X of Y"); each department divider is its own 1-page
-    PDF padded to an even 2 pages with a blank sheet. The pieces are concatenated
-    with pypdf (see _merge_pdfs), so every teacher's report and every department
-    opens on the front of a fresh duplex sheet and numbers itself. Empty groups
-    (a department with no scorable responses) are skipped.
+    Everything is stacked into ONE document. A department divider carries a
+    _ReportStart(is_divider=True) marker (no footer/number, padded to an even 2
+    pages with a blank sheet); each report carries its own _ReportStart(footer)
+    marker. NumberedCanvas.save() then numbers every report on its OWN
+    "Page X of Y", pads each unit to even so every teacher/department opens on the
+    front of a fresh duplex sheet, and drops phantom pages — pure ReportLab, no
+    PDF-merge library. Empty groups (no scorable responses) are skipped.
     """
-    import io
-    buffers = []
+    from reportlab.platypus import PageBreak
+    ss = _pdf_styles()
+    doc = SimpleDocTemplate(pdf_path, pagesize=A4,
+                            topMargin=14 * mm, bottomMargin=18 * mm,
+                            leftMargin=15 * mm, rightMargin=15 * mm,
+                            title="SRET Feedback Reports (by HOD)")
+    story = []
+    watermark = None
+    first_group = True
     for grp in groups:
         results = grp.get("results") or []
         if not results:
             continue
-        # Inherit the TEST-DATA watermark from the first result that carries one.
-        watermark = None
-        for r in results:
-            if hasattr(r, "get") and r.get("watermark"):
-                watermark = r.get("watermark")
-                break
-        # Department divider (1 page) + a blank page -> even, so this department
-        # (and its first report) opens on the front of a fresh sheet.
-        buffers.append(_build_divider_pdf(grp.get("label") or "Department",
-                                          len(results), watermark))
-        buffers.append(_one_blank_page_pdf())
-        # Then the department's reports, each its own even-paged, self-numbered PDF.
+        if watermark is None:
+            for r in results:
+                if hasattr(r, "get") and r.get("watermark"):
+                    watermark = r.get("watermark")
+                    break
+        if not first_group:
+            story.append(PageBreak())               # break between departments
+        first_group = False
+        # Department divider unit: no footer/number, padded to even (2 pages) by
+        # save() so the department opens on the front of a fresh sheet.
+        story.append(_ReportStart(None, is_divider=True))
+        story.append(Spacer(1, 70))
+        story.append(Paragraph("<b>%s</b>" % (grp.get("label") or "Department"),
+                               ss["Title"]))
+        story.append(Spacer(1, 8))
+        story.append(Paragraph("%d course report(s) in this department"
+                               % len(results), ss["Ident"]))
+        story.append(PageBreak())
+        # The department's reports, each its own numbered/padded unit.
         for res in results:
-            b = io.BytesIO()
-            build_pdf_report(res, b)
-            buffers.append(b)
-    if not buffers:                     # nothing at all to render -> a stub page
-        buffers.append(_stub_pdf("No reports to display."))
-    return _merge_pdfs(buffers, pdf_path)
+            _append_pdf_story(res, story, ss)        # adds its own _ReportStart(footer)
+            story.append(PageBreak())
+    while story and type(story[-1]).__name__ == "PageBreak":
+        story.pop()                                  # no blank final page
+    if not story:
+        story.append(Paragraph("No reports to display.", ss["Ident"]))
+
+    class _C(NumberedCanvas):
+        pass
+    _C.footer_left = ""
+    _C._watermark = watermark
+    doc.build(story, canvasmaker=_C)
+    return pdf_path
 
 
 def build_hod_staff_foldered_pdf_zip(groups, zip_path):
