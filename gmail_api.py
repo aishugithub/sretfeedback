@@ -197,14 +197,32 @@ def _build_raw_message(from_addr, to_addr, subject, body, attachments=None):
 # ----------------------------------------------------------------------------
 # Transient HTTP statuses worth RETRYING (vs. a hard failure we surface at once).
 #   429  = rate/quota exceeded (Gmail's short-term per-user send-rate cap)
+#   403  = ALSO how Gmail reports a rate/quota cap — BUT ONLY when the body names
+#          a rate-limit reason (rateLimitExceeded / userRateLimitExceeded /
+#          RATE_LIMIT_EXCEEDED / 'Quota exceeded'). A 403 for any OTHER reason
+#          (bad scope, disabled account, forbidden) is a real permission failure
+#          and must NOT be retried — see _is_rate_limit_403().
 #   500/502/503/504 = Google-side hiccups
-# These are exactly the errors a big one-shot blast (e.g. ~1,400 students) can hit
-# when messages go out faster than Gmail's per-second limit; a short backoff-and-
-# retry turns a would-be DROPPED student into a delivered one. A 401 (expired
-# token), 400 (bad recipient) etc. are NOT retried — they will never succeed on a
-# blind retry, so we surface them immediately for the caller to log.
+# These are exactly the errors a big one-shot blast (e.g. ~1,400 students, or a
+# batch of report emails carrying PDF attachments) can hit when the send rate
+# exceeds Gmail's per-user quota; a backoff-and-retry turns a would-be DROPPED
+# recipient into a delivered one. A 401 (expired token), 400 (bad recipient) etc.
+# are NOT retried — they never succeed on a blind retry, so we surface them at once.
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
-_MAX_TRIES = 5                      # 1 initial + up to 4 retries
+_MAX_TRIES = 6                      # 1 initial + up to 5 retries (spans a >1-min window)
+
+# Reasons Gmail uses for a rate/quota cap. A 403 carrying any of these is transient
+# (wait for the per-minute window to reset and resend); a 403 without one is a hard
+# permission error we must surface immediately.
+_RATE_LIMIT_MARKERS = ("ratelimitexceeded", "userratelimitexceeded",
+                       "rate_limit_exceeded", "quota exceeded", "quotaexceeded")
+
+
+def _is_rate_limit_403(body_txt):
+    """True when a 403 body indicates Gmail's rate/quota cap (so it is worth a
+    backoff-and-retry) rather than a genuine permission failure."""
+    low = (body_txt or "").lower()
+    return any(marker in low for marker in _RATE_LIMIT_MARKERS)
 
 
 def send_via_gmail_api(cfg, from_addr, to_addr, subject, body, attachments=None):
@@ -236,14 +254,23 @@ def send_via_gmail_api(cfg, from_addr, to_addr, subject, body, attachments=None)
         except urllib.error.HTTPError as e:
             body_txt = e.read().decode("utf-8", "replace")
             last_err = f"gmail send HTTP {e.code}: {body_txt}"
-            if e.code in _RETRYABLE_STATUS and attempt < _MAX_TRIES:
-                # Prefer the server's Retry-After (seconds) if present; else 2^(n-1).
+            # A rate/quota cap arrives as 429 OR as 403-with-a-rate-limit-reason.
+            rate_limited = (e.code == 429) or (e.code == 403 and _is_rate_limit_403(body_txt))
+            retryable = rate_limited or (e.code in _RETRYABLE_STATUS)
+            if retryable and attempt < _MAX_TRIES:
+                # Prefer the server's Retry-After (seconds) if present.
                 try:
                     wait = float(e.headers.get("Retry-After", ""))
                 except (TypeError, ValueError):
                     wait = 0.0
                 if wait <= 0:
-                    wait = 2 ** (attempt - 1)      # 1, 2, 4, 8 seconds
+                    if rate_limited:
+                        # This quota resets on a per-MINUTE window, so a 1-8s wait
+                        # can land inside the SAME exhausted minute. Back off harder
+                        # (5, 10, 20, 30, 30s) so a retry lands in a fresh window.
+                        wait = min(30.0, 5 * (2 ** (attempt - 1)))
+                    else:
+                        wait = 2 ** (attempt - 1)      # 1, 2, 4, 8, 16 seconds
                 time.sleep(wait)
                 continue                          # try again
             raise RuntimeError(last_err)          # non-retryable, or out of tries

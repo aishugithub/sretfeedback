@@ -46,7 +46,7 @@
       <div class="l">by faculty (ATRs)</div>
     </div>
     <div class="metric">
-      <div class="n" style="font-size:15px">{{ summary.last_at or '—' }}</div>
+      <div class="n" style="font-size:15px">{{ (summary.last_at | ist) or '—' }}</div>
       <div class="l">most recent action</div>
     </div>
   </div>
@@ -107,7 +107,7 @@
     <tbody>
       {% for r in rows %}
         <tr>
-          <td style="white-space:nowrap">{{ r.at }}</td>
+          <td style="white-space:nowrap">{{ r.at | ist }}</td>
           <td>
             {# A small coloured pill by actor type makes leaders vs the admin
                console vs faculty scannable at a glance. #}

@@ -285,16 +285,19 @@ def send_batch(base_dir, subject, messages, is_test=False,
     # failure on one recipient is recorded and the batch continues.
     if gcfg["enabled"]:
         import time as _time                      # local: throttle + progress only
-        # THROTTLE for large one-shot blasts (e.g. ~1,400 students). Gmail enforces
-        # a short-term per-user SEND-RATE cap (separate from the 2,000/day quota); a
-        # tight no-delay loop can trip "Rate limit exceeded". A small pause between
-        # sends keeps us comfortably under it. Tunable via FEEDBACK_SEND_DELAY_SEC
-        # (seconds, default 0.25 ≈ 4/sec ≈ ~1,400 mails in ~6 min). Combined with
-        # the retry/backoff in gmail_api, a full-cohort send goes out without drops.
+        # THROTTLE for large one-shot blasts (e.g. ~1,400 students, or a batch of
+        # report emails with PDF attachments). Gmail enforces a per-user quota on
+        # "Total Query Cost" — ~6,000 units/minute, and each send costs ~100 units,
+        # so the safe sustained rate is ROUGHLY 1 send/second. The old 0.25s default
+        # (~4/sec) overran that per-minute budget on big sends and Gmail returned
+        # 403 rateLimitExceeded. Default is now 1.0s (~1/sec, under the cap);
+        # tunable via FEEDBACK_SEND_DELAY_SEC for accounts with a higher quota.
+        # Combined with the 429/403 backoff-and-retry in gmail_api, a full-cohort
+        # send goes out without drops even if a minute briefly saturates.
         try:
-            delay = float(os.environ.get("FEEDBACK_SEND_DELAY_SEC", "0.25"))
+            delay = float(os.environ.get("FEEDBACK_SEND_DELAY_SEC", "1.0"))
         except ValueError:
-            delay = 0.25
+            delay = 1.0
         from_addr = gcfg["from_addr"]           # feedback@sret.edu.in
         total = len(messages)
         for idx, m in enumerate(messages, start=1):

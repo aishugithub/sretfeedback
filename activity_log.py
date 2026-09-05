@@ -393,8 +393,11 @@ def recent(conn, *, actor=None, action=None, cycle=None, day=None, limit=300):
     if cycle:
         clauses.append("cycle_code = ?"); params.append(cycle)
     if day:
-        # activity_log.at is 'YYYY-MM-DD HH:MM:SS' UTC; match the date prefix.
-        clauses.append("substr(at,1,10) = ?"); params.append(day)
+        # activity_log.at is stored UTC; the viewer shows IST, so match the day
+        # picker against the IST calendar date (UTC + 5:30) — otherwise a late-
+        # evening IST action (which is next-day UTC) would filter under the wrong
+        # date. datetime(at,'+330 minutes') shifts the stored UTC time into IST.
+        clauses.append("substr(datetime(at,'+330 minutes'),1,10) = ?"); params.append(day)
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     sql = ("SELECT * FROM activity_log %s ORDER BY id DESC LIMIT ?" % where)
     params.append(int(limit))
@@ -429,8 +432,11 @@ def summary(conn):
     total = conn.execute("SELECT COUNT(*) n FROM activity_log").fetchone()["n"]
     # datetime('now') is UTC, matching how rows are stamped, so "today" lines up
     # with the at-column dates the viewer shows.
+    # "Today" in IST (both sides shifted +5:30) so the count matches the IST dates
+    # the viewer shows, not the UTC calendar day.
     today = conn.execute(
-        "SELECT COUNT(*) n FROM activity_log WHERE substr(at,1,10)=substr(datetime('now'),1,10)"
+        "SELECT COUNT(*) n FROM activity_log "
+        "WHERE substr(datetime(at,'+330 minutes'),1,10)=substr(datetime('now','+330 minutes'),1,10)"
     ).fetchone()["n"]
     # Count per actor type (ADMIN/LEADER/FACULTY/SYSTEM) so the header shows who is
     # driving the activity. Returned as a plain dict keyed by type.

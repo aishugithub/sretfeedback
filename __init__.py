@@ -129,6 +129,33 @@ def create_app() -> Flask:
         import settings
         return {"atr_enabled": settings.atr_enabled()}
 
+    # ------------------------------------------------------------------
+    # TEMPLATE FILTER `ist`: show a stored UTC timestamp in India time.
+    # ------------------------------------------------------------------
+    # Every timestamp in the app is stored in UTC (SQLite datetime('now')), which
+    # is correct for storage but reads wrong to the professor in Chennai. This
+    # filter converts a 'YYYY-MM-DD HH:MM:SS' UTC string to IST (Asia/Kolkata,
+    # a fixed UTC+5:30 — India has no daylight saving) for DISPLAY only; nothing
+    # stored changes. Used by the activity-log viewer ({{ r.at | ist }}). It fails
+    # safe: anything it can't parse is returned unchanged so a page never breaks.
+    from datetime import datetime as _dt, timedelta as _td
+    _IST_OFFSET = _td(hours=5, minutes=30)
+
+    @app.template_filter("ist")
+    def _to_ist(value):
+        if not value:
+            return value
+        text = str(value).strip()
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                parsed = _dt.strptime(text, fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return value                      # unknown shape -> leave as-is
+        return (parsed + _IST_OFFSET).strftime("%d %b %Y, %I:%M %p") + " IST"
+
     # Root URL -> the admin dashboard (the professor's home screen). Students
     # never visit "/"; they arrive directly at their /f/<token> link.
     @app.route("/")
